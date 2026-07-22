@@ -3,7 +3,11 @@
 
   const THEME_ORDER = ["paper", "eye", "night"];
   const THEME_COLORS = { paper: "#263a31", eye: "#2f4638", night: "#17211c" };
+  const APP_VERSION = "20260722-auto-update-v3";
+  const UPDATE_INTERVAL_MS = 15 * 60 * 1000;
   let installPrompt = null;
+
+  document.documentElement.dataset.appVersion = APP_VERSION;
 
   function writeStorage(key, value) {
     try {
@@ -87,7 +91,7 @@
     if (volume.status === "ready") {
       return `<a class="volume-chip volume-ready" href="${escapeHtml(volume.href)}"><span>${escapeHtml(volume.label)}</span><small>可閱讀</small></a>`;
     }
-    return `<span class="volume-chip" title="原始 PDF 已下載，HTML 轉換待完成"><span>${escapeHtml(volume.label)}</span><small>待整理</small></span>`;
+    return `<span class="volume-chip" title="此冊尚待整理"><span>${escapeHtml(volume.label)}</span><small>待整理</small></span>`;
   }
 
   function bookMarkup(book) {
@@ -102,7 +106,7 @@
           <div class="volume-list" aria-label="冊次">${book.volumes.map(volumeMarkup).join("")}</div>
           <div class="book-actions">
             <a class="primary-button" href="${escapeHtml(book.volumes[0].href)}">展卷讀誦</a>
-            <a class="text-link" href="${escapeHtml(book.sourceUrl)}" target="_blank" rel="noreferrer">查看原始資料</a>
+            <a class="text-link" href="${escapeHtml(book.sourceUrl)}" target="_blank" rel="noreferrer">文本來源 · ${escapeHtml(book.sourceName)}</a>
           </div>
         </div>
       </article>`;
@@ -141,13 +145,45 @@
         params.set("page", String(progress.sourcePage));
       }
       card.href = `./reader.html?${params.toString()}`;
-      const pageLabel = hasSourcePage
-        ? ` · ${progress.sourcePageLabel || (/^\d+$/.test(String(progress.sourcePage)) ? `原書第 ${progress.sourcePage} 頁` : progress.sourcePage)}`
-        : "";
-      title.textContent = `${progress.sectionTitle || "華嚴經第一冊"}${pageLabel}`;
+      title.textContent = progress.sectionTitle || "華嚴經第一冊";
       card.hidden = false;
     } catch (_error) {
       // Ignore malformed or unavailable storage.
+    }
+  }
+
+  async function registerServiceWorker() {
+    try {
+      const registration = await navigator.serviceWorker.register("./sw.js", {
+        scope: "./",
+        updateViaCache: "none"
+      });
+      let updateInFlight = false;
+      const checkForUpdate = async () => {
+        if (updateInFlight) return;
+        updateInFlight = true;
+        try {
+          await registration.update();
+        } catch (_error) {
+          // Offline reading remains available; retry on the next foreground check.
+        } finally {
+          updateInFlight = false;
+        }
+      };
+
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) checkForUpdate();
+      });
+      window.addEventListener("focus", checkForUpdate);
+      window.addEventListener("online", checkForUpdate);
+      window.setInterval(checkForUpdate, UPDATE_INTERVAL_MS);
+      checkForUpdate();
+
+      navigator.serviceWorker.ready.then((readyRegistration) => {
+        readyRegistration.active?.postMessage({ type: "CACHE_BOOK" });
+      }).catch(() => {});
+    } catch (_error) {
+      // The site remains usable when service workers are unavailable.
     }
   }
 
@@ -162,7 +198,7 @@
   updateThemeColor(document.documentElement.dataset.theme || "paper");
 
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
-    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+    window.addEventListener("load", registerServiceWorker);
   }
 
   window.sutraApp = { setTheme, installApp, writeStorage };

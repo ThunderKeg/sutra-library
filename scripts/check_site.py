@@ -145,9 +145,18 @@ def main() -> int:
     require('"wheel", handleWheel, { passive: false }' in reader_script, "trackpad edge pull interaction missing")
     require("pageOffsetRatio" in reader_script and "resumeRequested" in reader_script, "exact page resume missing")
     require("pageElementFor" in reader_script and "page.pageKey" in reader_script and "sourcePageLabel" in reader_script, "stable page-key resume missing")
-    require('resume: "1"' in app_script and "progress.sourcePageLabel" in app_script, "resume card must display the saved source page")
+    require('resume: "1"' in app_script and 'params.set("page", String(progress.sourcePage))' in app_script, "resume card must preserve the saved source page")
+    visible_copy = index_html + reader_html + app_script + reader_script + (ROOT / "data/library.json").read_text(encoding="utf-8")
+    for unnatural_copy in ("拼音依原 PDF 字形還原", "原書第", "PDF 前置第", "原始 PDF 來源", "查看原始資料"):
+        require(unnatural_copy not in visible_copy, f"unnatural reader copy remains: {unnatural_copy}")
+    require("文本來源 · 圓道禪院漢語拼音版" in visible_copy, "reader source attribution missing")
     require("volume-01-index.json" in service_worker, "service worker does not cache book index")
-    require("sutra-library-v4-20260722-section-edge-pull" in service_worker, "service worker cache version was not bumped")
+    require('updateViaCache: "none"' in app_script and "registration.update()" in app_script, "foreground service-worker update checks missing")
+    require('"visibilitychange"' in app_script and '"focus"' in app_script and '"online"' in app_script, "update checks must run when the PWA returns online or foreground")
+    require("clients.matchAll" in service_worker and "client.navigate(client.url)" in service_worker, "active PWA clients are not refreshed after an update")
+    require('postMessage({ type: "CACHE_BOOK" })' in app_script and 'event.data?.type === "CACHE_BOOK"' in service_worker, "background book cache warming missing")
+    require("bookCachePromise" in service_worker and "missingAssets" in service_worker, "background book cache warming must be deduplicated")
+    require("sutra-library-v8-20260722-auto-update" in service_worker, "service worker cache version was not bumped")
 
     print(
         f"Site checks passed: {len(volume_index['sections'])} sections, {page_count} PDF pages, "

@@ -149,7 +149,6 @@
     viewport.scrollLeft = Math.max(0, Math.min(max, pageRight - page.offsetWidth * pageOffsetRatio - viewport.clientWidth));
     currentSourcePage = page.dataset.sourcePage;
     currentSourcePageLabel = page.dataset.sourcePageLabel;
-    sourcePageLabel.textContent = currentSourcePageLabel;
   }
 
   function getSavedProgress() {
@@ -233,7 +232,7 @@
     toc.innerHTML = volumeIndex.sections.map((section, index) => `
       <button type="button" data-section="${section.id}" data-index="${index}">
         <span class="toc-number">${String(index + 1).padStart(2, "0")}</span>
-        <span><strong>${section.title}</strong><small>${section.sourcePageLabel}</small></span>
+        <span><strong>${section.title}</strong></span>
       </button>`).join("");
     toc.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-index]");
@@ -246,7 +245,7 @@
   function updateSectionUi(section) {
     currentSectionLabel.textContent = section.title;
     footerSectionTitle.textContent = section.shortTitle || section.title;
-    sourcePageLabel.textContent = section.sourcePageLabel;
+    sourcePageLabel.textContent = `${volumeIndex.sourceName || "圓道禪院"}漢語拼音版`;
     document.getElementById("previousSection").disabled = activeSectionIndex === 0;
     document.getElementById("nextSection").disabled = activeSectionIndex === volumeIndex.sections.length - 1;
     document.querySelectorAll("#tocList button[data-index]").forEach((button) => {
@@ -419,7 +418,6 @@
       if (!visible) return;
       currentSourcePage = visible.target.dataset.sourcePage;
       currentSourcePageLabel = visible.target.dataset.sourcePageLabel;
-      sourcePageLabel.textContent = currentSourcePageLabel;
       scheduleSave();
     }, { root: viewport, threshold: [0.25, 0.5, 0.75] });
     pages.forEach((page) => pageObserver.observe(page));
@@ -445,11 +443,9 @@
 
       const pages = data.pages.map((page) => page.facsimile
         ? `<section class="source-page facsimile-page" id="page-${page.pageKey}" data-source-page="${page.pageKey}" data-source-page-label="${page.pageLabel}" aria-label="${page.pageLabel}圖像">
-            <span class="page-folio" aria-hidden="true">${page.folioLabel}</span>
-            <img src="./${page.facsimile}" alt="${page.pageLabel}原貌" loading="lazy" decoding="async">
+            <img src="./${page.facsimile}" alt="經書原頁影像" loading="lazy" decoding="async">
           </section>`
-        : `<section class="source-page" id="page-${page.pageKey}" data-source-page="${page.pageKey}" data-source-page-label="${page.pageLabel}" aria-label="${page.pageLabel}">
-            <span class="page-folio" aria-hidden="true">${page.folioLabel}</span>
+        : `<section class="source-page" id="page-${page.pageKey}" data-source-page="${page.pageKey}" data-source-page-label="${page.pageLabel}" aria-label="經文">
             <div class="page-text">${page.html}</div>
           </section>`).join("");
 
@@ -485,7 +481,7 @@
           <p>大方廣佛華嚴經 · 第一冊</p>
           <h1>${section.title}</h1>
           <span>${volumeIndex.translator}</span>
-          <small>拼音依原 PDF 字形還原 · ${section.sourcePageLabel}</small>
+          <small><a href="${volumeIndex.sourceUrl}" target="_blank" rel="noreferrer">文本來源 · ${volumeIndex.sourceName || "圓道禪院"}漢語拼音版</a></small>
         </header>${pages}${continuation}`;
 
       document.getElementById("continueSection")?.addEventListener("click", goToNextSection);

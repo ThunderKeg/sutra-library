@@ -1,4 +1,7 @@
-const CACHE_VERSION = "sutra-library-v4-20260722-section-edge-pull";
+const CACHE_PREFIX = "sutra-library-";
+const CACHE_VERSION = "sutra-library-v8-20260722-auto-update";
+const BOOK_INDEX_URL = "./data/huayan/volume-01-index.json";
+let bookCachePromise = null;
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -13,28 +16,37 @@ const APP_SHELL = [
   "./assets/icons/icon-512.png",
   "./assets/icons/icon-maskable-512.png",
   "./assets/icons/apple-touch-icon.png",
-  "./data/library.json"
+  "./data/library.json",
+  BOOK_INDEX_URL
 ];
 
-self.addEventListener("install", (event) => {
-  event.waitUntil((async () => {
+function cacheBookAssets() {
+  if (bookCachePromise) return bookCachePromise;
+  bookCachePromise = (async () => {
     const cache = await caches.open(CACHE_VERSION);
-    await cache.addAll(APP_SHELL);
-
     try {
-      const indexUrl = "./data/huayan/volume-01-index.json";
-      const response = await fetch(indexUrl, { cache: "no-cache" });
+      const response = await fetch(BOOK_INDEX_URL, { cache: "no-cache" });
       if (!response.ok) return;
-      await cache.put(indexUrl, response.clone());
+      await cache.put(BOOK_INDEX_URL, response.clone());
       const index = await response.json();
       const bookAssets = [
         ...index.sections.map((section) => `./${section.content}`),
         ...(index.offlineAssets || []).map((asset) => `./${asset}`)
       ];
-      await cache.addAll(bookAssets);
+      const cachedMatches = await Promise.all(bookAssets.map((asset) => cache.match(asset)));
+      const missingAssets = bookAssets.filter((_asset, index) => !cachedMatches[index]);
+      if (missingAssets.length) await cache.addAll(missingAssets);
     } catch (_error) {
-      // The app shell still installs. Missing book data will be cached on first read.
+      // Individual book assets are cached on first read when background warming fails.
     }
+  })().finally(() => { bookCachePromise = null; });
+  return bookCachePromise;
+}
+
+self.addEventListener("install", (event) => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_VERSION);
+    await cache.addAll(APP_SHELL);
     await self.skipWaiting();
   })());
 });
@@ -42,9 +54,25 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key)));
+    const staleKeys = keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_VERSION);
+    await Promise.all(staleKeys.map((key) => caches.delete(key)));
     await self.clients.claim();
+
+    if (staleKeys.length) {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      await Promise.all(windows.map(async (client) => {
+        try {
+          await client.navigate(client.url);
+        } catch (_error) {
+          // A closed or non-navigable client will receive the update next time it opens.
+        }
+      }));
+    }
   })());
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "CACHE_BOOK") event.waitUntil(cacheBookAssets());
 });
 
 self.addEventListener("fetch", (event) => {

@@ -870,18 +870,6 @@ a { color: inherit; }
 
 .punctuation { color: color-mix(in srgb, var(--ink) 82%, var(--accent)); }
 
-.page-folio {
-  position: absolute;
-  right: 0.35rem;
-  bottom: 0.65rem;
-  color: var(--accent);
-  font-family: system-ui, sans-serif;
-  font-size: 0.62rem;
-  letter-spacing: 0;
-  writing-mode: horizontal-tb;
-}
-
-
 .reader-loading,
 .reader-error {
   display: flex;

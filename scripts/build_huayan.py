@@ -505,6 +505,7 @@ def main() -> int:
         "readingMode": "vertical-rl",
         "annotation": "tone-marked pinyin decoded from the source PDF glyph layer",
         "translator": "唐于闐國三藏沙門實叉難陀譯",
+        "sourceName": "圓道禪院",
         "sourceUrl": "https://yuandao-world.org/2020/04/14/%E5%A4%A7%E6%96%B9%E5%BB%A3%E4%BD%9B%E8%8F%AF%E5%9A%B4%E7%B6%93-%E6%BC%A2%E8%AA%9E%E6%8B%BC%E9%9F%B3%E7%89%88%E9%9B%BB%E5%AD%90%E6%AA%94%E4%B8%8B%E8%BC%89/",
         "sourcePdf": pdf_path.name,
         "sourcePdfSha256": pdf_sha256,
