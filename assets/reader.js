@@ -4,6 +4,20 @@
   const FONT_SCALES = [80, 90, 100, 110, 120, 130, 140];
   const PULL_THRESHOLD = 84;
   const PULL_EDGE_TOLERANCE = 3;
+  const AUDIO_PROGRESS_KEY = "sutra-audio-progress-v1";
+  const FIRST_VOLUME_AUDIO = Object.freeze({
+    "juan-01": { key: "huayan-juan-01", title: "第一卷", url: "https://wz.yyxcfg.com/a/a/4/1012.m4a" },
+    "juan-02": { key: "huayan-juan-02", title: "第二卷", url: "https://wz.yyxcfg.com/a/a/4/1013.m4a" },
+    "juan-03": { key: "huayan-juan-03", title: "第三卷", url: "https://wz.yyxcfg.com/a/a/4/1014.m4a" },
+    "juan-04": { key: "huayan-juan-04", title: "第四卷", url: "https://wz.yyxcfg.com/a/a/4/1015.m4a" },
+    "juan-05": { key: "huayan-juan-05", title: "第五卷", url: "https://wz.yyxcfg.com/a/a/4/1016.m4a" },
+    "juan-06": { key: "huayan-juan-06", title: "第六卷", url: "https://wz.yyxcfg.com/a/a/4/1017.m4a" },
+    "juan-07-puxian": { key: "huayan-juan-07", title: "第七卷", url: "https://wz.yyxcfg.com/a/a/4/1018.m4a" },
+    "juan-07-shijie": { key: "huayan-juan-07", title: "第七卷", url: "https://wz.yyxcfg.com/a/a/4/1018.m4a" },
+    "juan-08": { key: "huayan-juan-08", title: "第八卷", url: "https://wz.yyxcfg.com/a/a/4/1019.m4a" },
+    "juan-09": { key: "huayan-juan-09", title: "第九卷", url: "https://wz.yyxcfg.com/a/a/4/1020.m4a" },
+    "juan-10": { key: "huayan-juan-10", title: "第十卷", url: "https://wz.yyxcfg.com/a/a/4/1021.m4a" }
+  });
   const params = new URLSearchParams(window.location.search);
   const bookId = params.get("book") || "huayan";
   const volumeId = params.get("volume") || "01";
@@ -14,8 +28,15 @@
   const tocDrawer = document.getElementById("tocDrawer");
   const drawerBackdrop = document.getElementById("drawerBackdrop");
   const settingsPanel = document.getElementById("settingsPanel");
+  const audioPanel = document.getElementById("audioPanel");
   const tocButton = document.getElementById("tocButton");
   const settingsButton = document.getElementById("settingsButton");
+  const audioButton = document.getElementById("audioButton");
+  const readerAudio = document.getElementById("readerAudio");
+  const audioPlayButton = document.getElementById("audioPlayButton");
+  const audioTrackTitle = document.getElementById("audioTrackTitle");
+  const audioTrackReader = document.getElementById("audioTrackReader");
+  const audioStatus = document.getElementById("audioStatus");
   const progressLabel = document.getElementById("readerProgress");
   const currentSectionLabel = document.getElementById("currentSectionLabel");
   const footerSectionTitle = document.getElementById("footerSectionTitle");
@@ -42,6 +63,8 @@
   let wheelPullDirection = null;
   let wheelPullDistance = 0;
   let wheelPullTimer = null;
+  let audioSaveTimer = null;
+  let currentAudioTrack = null;
 
   function readStorage(key, fallback) {
     try {
@@ -71,6 +94,7 @@
 
   function openToc() {
     closeSettings();
+    closeAudio();
     tocDrawer.dataset.open = "true";
     tocDrawer.setAttribute("aria-hidden", "false");
     tocButton.setAttribute("aria-expanded", "true");
@@ -86,9 +110,124 @@
 
   function openSettings() {
     closeToc();
+    closeAudio();
     settingsPanel.dataset.open = "true";
     settingsPanel.setAttribute("aria-hidden", "false");
     settingsButton.setAttribute("aria-expanded", "true");
+  }
+
+  function closeAudio() {
+    audioPanel.dataset.open = "false";
+    audioPanel.setAttribute("aria-hidden", "true");
+    audioButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openAudio() {
+    closeToc();
+    closeSettings();
+    ensureAudioSource();
+    audioPanel.dataset.open = "true";
+    audioPanel.setAttribute("aria-hidden", "false");
+    audioButton.setAttribute("aria-expanded", "true");
+  }
+
+  function ensureAudioSource() {
+    if (!currentAudioTrack || readerAudio.getAttribute("src") === currentAudioTrack.url) return;
+    readerAudio.src = currentAudioTrack.url;
+  }
+
+  async function toggleAudioPlayback() {
+    if (!currentAudioTrack) return;
+    if (!readerAudio.paused) {
+      readerAudio.pause();
+      return;
+    }
+    ensureAudioSource();
+    audioPlayButton.disabled = true;
+    audioStatus.textContent = `正在連接 ${currentAudioTrack.title}…`;
+    try {
+      await readerAudio.play();
+    } catch (_error) {
+      audioStatus.textContent = "音頻暫時無法播放，請檢查網路後重試。";
+    } finally {
+      audioPlayButton.disabled = false;
+    }
+  }
+
+  function getAudioTrack(section) {
+    if (bookId !== "huayan" || volumeId !== "01") return null;
+    return FIRST_VOLUME_AUDIO[section.id] || null;
+  }
+
+  function readAudioProgress() {
+    try {
+      const saved = JSON.parse(readStorage(AUDIO_PROGRESS_KEY, "{}"));
+      return saved && typeof saved === "object" ? saved : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function saveAudioProgress() {
+    window.clearTimeout(audioSaveTimer);
+    if (!currentAudioTrack || !Number.isFinite(readerAudio.currentTime)) return;
+    const saved = readAudioProgress();
+    saved[currentAudioTrack.key] = {
+      currentTime: Number(readerAudio.currentTime.toFixed(2)),
+      duration: Number.isFinite(readerAudio.duration) ? Number(readerAudio.duration.toFixed(2)) : null,
+      updatedAt: new Date().toISOString()
+    };
+    writeStorage(AUDIO_PROGRESS_KEY, JSON.stringify(saved));
+  }
+
+  function scheduleAudioSave() {
+    window.clearTimeout(audioSaveTimer);
+    audioSaveTimer = window.setTimeout(saveAudioProgress, 900);
+  }
+
+  function restoreAudioProgress() {
+    if (!currentAudioTrack || readerAudio.dataset.trackKey !== currentAudioTrack.key) return;
+    const savedTime = Number(readAudioProgress()[currentAudioTrack.key]?.currentTime);
+    if (!Number.isFinite(savedTime) || savedTime <= 0 || !Number.isFinite(readerAudio.duration)) return;
+    readerAudio.currentTime = savedTime < readerAudio.duration - 3 ? savedTime : 0;
+  }
+
+  function updateAudioForSection(section) {
+    const nextTrack = getAudioTrack(section);
+    if (!nextTrack) {
+      saveAudioProgress();
+      currentAudioTrack = null;
+      readerAudio.pause();
+      readerAudio.removeAttribute("src");
+      readerAudio.removeAttribute("data-track-key");
+      readerAudio.load();
+      readerAudio.hidden = true;
+      audioPlayButton.hidden = true;
+      audioTrackTitle.textContent = "本節暫無配套音頻";
+      audioTrackReader.textContent = section.id === "kaijing-ji"
+        ? "此版本未另錄開經偈"
+        : "前置資料沒有對應讀誦音軌";
+      audioStatus.textContent = "請進入第一卷至第十卷正文後播放。";
+      audioButton.setAttribute("aria-label", "打開誦經音頻：本節暫無配套音頻");
+      audioButton.dataset.playing = "false";
+      return;
+    }
+
+    audioTrackTitle.textContent = `《大方廣佛華嚴經》${nextTrack.title}`;
+    audioPlayButton.hidden = false;
+    audioTrackReader.textContent = "慧平法師讀誦";
+    audioButton.setAttribute("aria-label", `打開誦經音頻：${nextTrack.title}`);
+
+    if (currentAudioTrack?.key === nextTrack.key) return;
+    audioPlayButton.textContent = "開始播放";
+    audioStatus.textContent = "可從上次位置續播。";
+    saveAudioProgress();
+    readerAudio.pause();
+    readerAudio.removeAttribute("src");
+    readerAudio.load();
+    currentAudioTrack = nextTrack;
+    readerAudio.hidden = false;
+    readerAudio.dataset.trackKey = nextTrack.key;
   }
 
   function scrollMetrics() {
@@ -255,6 +394,7 @@
       if (Number(button.dataset.index) === activeSectionIndex) button.setAttribute("aria-current", "true");
       else button.removeAttribute("aria-current");
     });
+    updateAudioForSection(section);
   }
 
   function hasNextSection() {
@@ -547,6 +687,9 @@
   document.getElementById("closeToc").addEventListener("click", closeToc);
   drawerBackdrop.addEventListener("click", closeToc);
   settingsButton.addEventListener("click", () => settingsPanel.dataset.open === "true" ? closeSettings() : openSettings());
+  audioButton.addEventListener("click", () => audioPanel.dataset.open === "true" ? closeAudio() : openAudio());
+  audioPlayButton.addEventListener("click", toggleAudioPlayback);
+  document.getElementById("closeAudio").addEventListener("click", closeAudio);
   document.getElementById("closeSettings").addEventListener("click", closeSettings);
   document.getElementById("fontDecrease").addEventListener("click", () => shiftFontScale(-1));
   document.getElementById("fontIncrease").addEventListener("click", () => shiftFontScale(1));
@@ -556,17 +699,40 @@
   document.getElementById("nextSection").addEventListener("click", goToNextSection);
   document.addEventListener("sutra:theme", updateSettingsUi);
 
+  readerAudio.addEventListener("loadedmetadata", restoreAudioProgress);
+  readerAudio.addEventListener("timeupdate", scheduleAudioSave);
+  readerAudio.addEventListener("play", () => {
+    audioButton.dataset.playing = "true";
+    audioPlayButton.textContent = "暫停播放";
+    audioStatus.textContent = `正在播放 ${currentAudioTrack?.title || "誦經音頻"}`;
+  });
+  readerAudio.addEventListener("pause", () => {
+    audioButton.dataset.playing = "false";
+    audioPlayButton.textContent = readerAudio.ended ? "重新播放" : "繼續播放";
+    saveAudioProgress();
+    if (currentAudioTrack && !readerAudio.ended) audioStatus.textContent = "已暫停，進度已保存。";
+  });
+  readerAudio.addEventListener("ended", () => {
+    audioButton.dataset.playing = "false";
+    audioPlayButton.textContent = "重新播放";
+    saveAudioProgress();
+    audioStatus.textContent = `${currentAudioTrack?.title || "本卷"}播放完畢。`;
+  });
+  readerAudio.addEventListener("error", () => {
+    if (currentAudioTrack) audioStatus.textContent = "音頻暫時無法載入，請檢查網路後重試。";
+  });
+
   viewport.addEventListener("scroll", updateProgress, { passive: true });
   viewport.addEventListener("touchstart", handleTouchStart, { passive: true });
   viewport.addEventListener("touchmove", handleTouchMove, { passive: false });
   viewport.addEventListener("touchend", handleTouchEnd, { passive: true });
   viewport.addEventListener("touchcancel", resetPullGesture, { passive: true });
   viewport.addEventListener("wheel", handleWheel, { passive: false });
-  window.addEventListener("pagehide", saveProgress);
-  document.addEventListener("visibilitychange", () => { if (document.hidden) saveProgress(); });
+  window.addEventListener("pagehide", () => { saveProgress(); saveAudioProgress(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { saveProgress(); saveAudioProgress(); } });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { closeToc(); closeSettings(); }
-    if (event.target.closest("button, a, input")) return;
+    if (event.key === "Escape") { closeToc(); closeSettings(); closeAudio(); }
+    if (event.target.closest("button, a, input, audio")) return;
     if (event.key === "ArrowLeft" || event.key === "PageDown") viewport.scrollBy({ left: -viewport.clientWidth * 0.82, behavior: "smooth" });
     if (event.key === "ArrowRight" || event.key === "PageUp") viewport.scrollBy({ left: viewport.clientWidth * 0.82, behavior: "smooth" });
   });

@@ -6,6 +6,8 @@
 
 本项目收录唐于闐國三藏沙門實叉難陀譯《大方廣佛華嚴經》八十卷（通称“八十华严”），以圓道禪院[《大方廣佛華嚴經 漢語拼音版電子檔下載》](https://yuandao-world.org/2020/04/14/%E5%A4%A7%E6%96%B9%E5%BB%A3%E4%BD%9B%E8%8F%AF%E5%9A%B4%E7%B6%93-%E6%BC%A2%E8%AA%9E%E6%8B%BC%E9%9F%B3%E7%89%88%E9%9B%BB%E5%AD%90%E6%AA%94%E4%B8%8B%E8%BC%89/)页面提供的八册 PDF 为底本。当前网站已开放第一册，对应卷一至卷十；其余册次尚未生成可阅读的网页版本。
 
+第一册的诵经音频采用慧平法师读诵版本，来源为佛弟子文库[《八十华严（慧平法师）》](https://www.fodizi.net/fojing/23/7444.html)。音频由来源站点的 CDN 在线串流，本项目不保存或重新分发音频文件，也不把音频纳入整册离线下载。卷次与音轨的具体对应关系记录在 [`docs/huayan-typesetting.md`](docs/huayan-typesetting.md)。
+
 项目协作规则见 [`AGENTS.md`](AGENTS.md)，华严经内容与排版要求见 [`docs/huayan-typesetting.md`](docs/huayan-typesetting.md)。
 
 ## Python 环境与依赖
@@ -60,5 +62,6 @@ PDF 的繁体正文有可用文字层；原拼音使用自定义字形映射，U
 ## 来源与发布注意
 
 - PDF 下载页：圓道禪院[《大方廣佛華嚴經 漢語拼音版電子檔下載》](https://yuandao-world.org/2020/04/14/%E5%A4%A7%E6%96%B9%E5%BB%A3%E4%BD%9B%E8%8F%AF%E5%9A%B4%E7%B6%93-%E6%BC%A2%E8%AA%9E%E6%8B%BC%E9%9F%B3%E7%89%88%E9%9B%BB%E5%AD%90%E6%AA%94%E4%B8%8B%E8%BC%89/)
+- 音频来源页：佛弟子文库[《八十华严（慧平法师）》](https://www.fodizi.net/fojing/23/7444.html)
 - 第一册原文件共 624 个 PDF 页，网站按 PDF 页 1–624 完整收录；正文显示原书页码，前九页使用 PDF 前置页码。
 - 下载页提供公开下载，但未在页面上标示开放授权。将正文公开发布到 GitHub Pages 前，请自行确认再发布权限；本项目保留来源链接和译者信息。

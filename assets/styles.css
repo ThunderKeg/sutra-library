@@ -476,6 +476,8 @@ a { color: inherit; }
 }
 
 .site-footer a { color: var(--accent); }
+.source-links { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.45rem 1rem; }
+.source-links strong { color: var(--ink); font-size: 0.72rem; }
 
 .install-dialog {
   width: min(92vw, 31rem);
@@ -546,6 +548,11 @@ a { color: inherit; }
 }
 
 .aa-button { font-family: Georgia, serif; font-size: 0.94rem; }
+.audio-button[data-playing="true"] {
+  border-color: var(--jade);
+  background: color-mix(in srgb, var(--jade) 12%, transparent);
+  color: var(--jade);
+}
 
 .reader-heading {
   min-width: 0;
@@ -979,7 +986,8 @@ a { color: inherit; }
 .toc-drawer[data-open="true"] { transform: translateX(0); }
 
 .drawer-header,
-.settings-header {
+.settings-header,
+.audio-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -989,7 +997,8 @@ a { color: inherit; }
 }
 
 .drawer-header h2,
-.settings-header h2 { margin: 0; font-size: 1.25rem; }
+.settings-header h2,
+.audio-header h2 { margin: 0; font-size: 1.25rem; }
 
 #tocList {
   flex: 1;
@@ -1031,7 +1040,8 @@ a { color: inherit; }
   font-size: 0.78rem;
 }
 
-.settings-panel {
+.settings-panel,
+.audio-panel {
   position: fixed;
   z-index: 85;
   top: calc(var(--reader-header-height) - 0.15rem);
@@ -1048,9 +1058,26 @@ a { color: inherit; }
   transition: opacity 160ms ease, transform 160ms ease;
 }
 
-.settings-panel[data-open="true"] { opacity: 1; pointer-events: auto; transform: translateY(0); }
-.settings-header { padding: 0.9rem 1rem; }
-.settings-header h2 { font-size: 1rem; }
+.settings-panel[data-open="true"],
+.audio-panel[data-open="true"] { opacity: 1; pointer-events: auto; transform: translateY(0); }
+.settings-header,
+.audio-header { padding: 0.9rem 1rem; }
+.settings-header h2,
+.audio-header h2 { font-size: 1rem; }
+
+.audio-panel { width: min(calc(100vw - 1.5rem), 28rem); }
+.audio-player-body { display: grid; gap: 0.8rem; padding: 1rem; font-family: system-ui, sans-serif; }
+.audio-track-copy strong,
+.audio-track-copy span { display: block; }
+.audio-track-copy strong { font-size: 0.92rem; line-height: 1.5; }
+.audio-track-copy span { margin-top: 0.22rem; color: var(--ink-soft); font-size: 0.7rem; line-height: 1.5; }
+.audio-player-body audio { display: block; width: 100%; min-height: 3.35rem; color-scheme: light; }
+:root[data-theme="night"] .audio-player-body audio { color-scheme: dark; }
+.audio-player-body audio[hidden] { display: none; }
+.audio-play-button { width: 100%; min-height: 2.8rem; }
+.audio-play-button[hidden] { display: none; }
+.audio-play-button:disabled { cursor: progress; opacity: 0.65; }
+.audio-status { margin: 0; color: var(--ink-soft); font-size: 0.68rem; line-height: 1.55; }
 
 .setting-row {
   display: flex;
@@ -1231,6 +1258,7 @@ a { color: inherit; }
   .book-details > .offline-download { align-items: flex-start; flex-direction: column; }
   .principle-grid { grid-template-columns: repeat(2, 1fr); }
   .site-footer { align-items: flex-start; flex-direction: column; }
+  .source-links { align-items: flex-start; justify-content: flex-start; }
 
   .reader-heading strong { font-size: 0.78rem; }
   .reader-progress { display: none; }
@@ -1246,6 +1274,7 @@ a { color: inherit; }
   .hero-seal span { display: inline; }
   .principle-grid { grid-template-columns: 1fr; }
   .reader-header { gap: 0.4rem; padding-right: 0.5rem; padding-left: 0.5rem; }
+  .reader-header-actions { gap: 0.35rem; }
   .icon-button { min-width: 2.5rem; padding-right: 0.55rem; padding-left: 0.55rem; }
   .update-prompt { right: 0.5rem; width: calc(100vw - 1rem); grid-template-columns: 1fr; }
   .update-prompt-actions { justify-content: flex-end; }
@@ -1265,6 +1294,7 @@ a { color: inherit; }
   .reader-header,
   .reader-footer,
   .toc-drawer,
-  .settings-panel { display: none !important; }
+  .settings-panel,
+  .audio-panel { display: none !important; }
   .reading-viewport { position: static; overflow: visible; }
 }
