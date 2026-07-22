@@ -3,6 +3,7 @@
 
   const FONT_SCALES = [80, 90, 100, 110, 120, 130, 140];
   const PULL_THRESHOLD = 84;
+  const PULL_EDGE_TOLERANCE = 3;
   const params = new URLSearchParams(window.location.search);
   const bookId = params.get("book") || "huayan";
   const volumeId = params.get("volume") || "01";
@@ -34,7 +35,11 @@
   let pageObserver = null;
   let pullStartX = null;
   let pullStartY = null;
+  let pullDirection = null;
   let pullDistance = 0;
+  let wheelPullDirection = null;
+  let wheelPullDistance = 0;
+  let wheelPullTimer = null;
 
   function readStorage(key, fallback) {
     try {
@@ -129,9 +134,11 @@
   }
 
   function restoreReadingPosition(position) {
-    const page = pageElementFor(position?.sourcePage);
+    const page = position?.edge === "end"
+      ? [...sutraText.querySelectorAll(".source-page")].at(-1)
+      : pageElementFor(position?.sourcePage);
     if (!page) {
-      setReadingRatio(Number(position?.ratio) || 0);
+      setReadingRatio(position?.edge === "end" ? 1 : Number(position?.ratio) || 0);
       return;
     }
 
@@ -253,25 +260,66 @@
     return Boolean(volumeIndex && activeSectionIndex < volumeIndex.sections.length - 1);
   }
 
-  function isAtSectionEnd() {
-    return viewport.scrollLeft <= 2;
+  function hasPreviousSection() {
+    return Boolean(volumeIndex && activeSectionIndex > 0);
   }
 
-  function updatePullIndicator(distance) {
+  function isAtSectionStart() {
+    const max = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    return viewport.scrollLeft >= max - PULL_EDGE_TOLERANCE;
+  }
+
+  function isAtSectionEnd() {
+    return viewport.scrollLeft <= PULL_EDGE_TOLERANCE;
+  }
+
+  function updatePullIndicator(direction, distance) {
     pullDistance = Math.max(0, distance);
-    const continuation = document.getElementById("sectionContinuation");
-    if (!continuation) return;
+    const indicators = {
+      previous: document.getElementById("sectionReturn"),
+      next: document.getElementById("sectionContinuation")
+    };
+
+    Object.values(indicators).forEach((indicator) => {
+      if (!indicator) return;
+      indicator.style.setProperty("--pull-progress", "0");
+      indicator.dataset.ready = "false";
+      const label = indicator.querySelector("[data-pull-label]");
+      if (label) label.textContent = indicator.id === "sectionReturn"
+        ? "再拉一下，回到上一節"
+        : "再拉一下，進入下一節";
+    });
+
+    const indicator = indicators[direction];
+    if (!indicator) return;
     const progress = Math.min(1, pullDistance / PULL_THRESHOLD);
-    continuation.style.setProperty("--pull-progress", String(progress));
-    continuation.dataset.ready = String(progress >= 1);
-    const label = continuation.querySelector("[data-pull-label]");
-    if (label) label.textContent = progress >= 1 ? "放開進入下一節" : "再拉一下，進入下一節";
+    indicator.style.setProperty("--pull-progress", String(progress));
+    indicator.dataset.ready = String(progress >= 1);
+    const label = indicator.querySelector("[data-pull-label]");
+    if (label && progress >= 1) label.textContent = direction === "previous"
+      ? "放開回到上一節"
+      : "放開進入下一節";
   }
 
   function resetPullGesture() {
     pullStartX = null;
     pullStartY = null;
-    updatePullIndicator(0);
+    pullDirection = null;
+    updatePullIndicator(null, 0);
+  }
+
+  function resetWheelPull() {
+    window.clearTimeout(wheelPullTimer);
+    wheelPullDirection = null;
+    wheelPullDistance = 0;
+    updatePullIndicator(null, 0);
+  }
+
+  function goToPreviousSection() {
+    if (!hasPreviousSection() || sectionLoading) return;
+    saveProgress();
+    showToast("正在展開上一節末頁");
+    loadSection(activeSectionIndex - 1, { edge: "end" });
   }
 
   function goToNextSection() {
@@ -282,31 +330,83 @@
   }
 
   function handleTouchStart(event) {
-    if (!hasNextSection() || !isAtSectionEnd() || event.touches.length !== 1) return;
+    if (sectionLoading || event.touches.length !== 1) return;
     pullStartX = event.touches[0].clientX;
     pullStartY = event.touches[0].clientY;
-    updatePullIndicator(0);
+    pullDirection = hasPreviousSection() && isAtSectionStart()
+      ? "previous"
+      : hasNextSection() && isAtSectionEnd()
+        ? "next"
+        : null;
+    updatePullIndicator(pullDirection, 0);
   }
 
   function handleTouchMove(event) {
-    if (!hasNextSection() || event.touches.length !== 1) return;
+    if (sectionLoading || event.touches.length !== 1 || pullStartX === null) return;
     const touch = event.touches[0];
-    if (pullStartX === null) {
-      if (!isAtSectionEnd()) return;
+    const deltaX = touch.clientX - pullStartX;
+    const deltaY = touch.clientY - pullStartY;
+    if (Math.abs(deltaX) <= Math.abs(deltaY)) return;
+
+    if (pullDirection === null) {
+      if (hasPreviousSection() && isAtSectionStart() && deltaX < 0) pullDirection = "previous";
+      else if (hasNextSection() && isAtSectionEnd() && deltaX > 0) pullDirection = "next";
+      else return;
       pullStartX = touch.clientX;
       pullStartY = touch.clientY;
+      updatePullIndicator(pullDirection, 0);
       return;
     }
 
-    const deltaX = touch.clientX - pullStartX;
-    const deltaY = touch.clientY - pullStartY;
-    updatePullIndicator(deltaX > Math.abs(deltaY) ? deltaX : 0);
+    const stillAtEdge = pullDirection === "previous" ? isAtSectionStart() : isAtSectionEnd();
+    const distance = pullDirection === "previous" ? -deltaX : deltaX;
+    if (!stillAtEdge || distance <= 0) {
+      updatePullIndicator(pullDirection, 0);
+      if (!stillAtEdge) pullDirection = null;
+      return;
+    }
+
+    event.preventDefault();
+    updatePullIndicator(pullDirection, distance);
   }
 
   function handleTouchEnd() {
+    const direction = pullDirection;
     const shouldContinue = pullDistance >= PULL_THRESHOLD;
     resetPullGesture();
-    if (shouldContinue) goToNextSection();
+    if (!shouldContinue) return;
+    if (direction === "previous") goToPreviousSection();
+    if (direction === "next") goToNextSection();
+  }
+
+  function handleWheel(event) {
+    if (sectionLoading || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+    const direction = hasPreviousSection() && isAtSectionStart() && event.deltaX > 0
+      ? "previous"
+      : hasNextSection() && isAtSectionEnd() && event.deltaX < 0
+        ? "next"
+        : null;
+    if (!direction) {
+      resetWheelPull();
+      return;
+    }
+
+    event.preventDefault();
+    if (wheelPullDirection !== direction) {
+      wheelPullDirection = direction;
+      wheelPullDistance = 0;
+    }
+    wheelPullDistance += Math.abs(event.deltaX);
+    updatePullIndicator(direction, wheelPullDistance);
+    window.clearTimeout(wheelPullTimer);
+
+    if (wheelPullDistance >= PULL_THRESHOLD) {
+      resetWheelPull();
+      if (direction === "previous") goToPreviousSection();
+      else goToNextSection();
+      return;
+    }
+    wheelPullTimer = window.setTimeout(resetWheelPull, 220);
   }
 
   function observePages() {
@@ -353,7 +453,16 @@
             <div class="page-text">${page.html}</div>
           </section>`).join("");
 
+      const previousSection = volumeIndex.sections[index - 1];
       const nextSection = volumeIndex.sections[index + 1];
+      const returnHint = previousSection
+        ? `<div class="section-return" id="sectionReturn" aria-label="本節開頭，上一節為${previousSection.title}" data-ready="false">
+            <span class="return-arrow" aria-hidden="true">→</span>
+            <div class="return-meter" aria-hidden="true"><span></span></div>
+            <p data-pull-label>再拉一下，回到上一節</p>
+            <small>上一節 · ${previousSection.shortTitle || previousSection.title}</small>
+          </div>`
+        : "";
       const continuation = nextSection
         ? `<section class="section-continuation" id="sectionContinuation" aria-label="本節結束，下一節為${nextSection.title}" data-ready="false">
             <span class="continuation-arrow" aria-hidden="true">←</span>
@@ -372,6 +481,7 @@
 
       sutraText.innerHTML = `
         <header class="section-title-page">
+          ${returnHint}
           <p>大方廣佛華嚴經 · 第一冊</p>
           <h1>${section.title}</h1>
           <span>${volumeIndex.translator}</span>
@@ -450,9 +560,10 @@
 
   viewport.addEventListener("scroll", updateProgress, { passive: true });
   viewport.addEventListener("touchstart", handleTouchStart, { passive: true });
-  viewport.addEventListener("touchmove", handleTouchMove, { passive: true });
+  viewport.addEventListener("touchmove", handleTouchMove, { passive: false });
   viewport.addEventListener("touchend", handleTouchEnd, { passive: true });
   viewport.addEventListener("touchcancel", resetPullGesture, { passive: true });
+  viewport.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("pagehide", saveProgress);
   document.addEventListener("visibilitychange", () => { if (document.hidden) saveProgress(); });
   document.addEventListener("keydown", (event) => {

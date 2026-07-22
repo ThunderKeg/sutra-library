@@ -138,12 +138,16 @@ def main() -> int:
     require("manifest.webmanifest" in index_html and "manifest.webmanifest" in reader_html, "manifest link missing")
     require("writing-mode: vertical-rl" in (ROOT / "assets/styles.css").read_text(encoding="utf-8"), "vertical layout missing")
     require(reader_html.index('id="nextSection"') < reader_html.index('id="previousSection"'), "next section control must be on the left")
-    require("sectionContinuation" in reader_script and '"touchstart"' in reader_script, "pull-to-next interaction missing")
+    require("sectionContinuation" in reader_script and "sectionReturn" in reader_script, "two-way section edge indicators missing")
+    require("hasPreviousSection" in reader_script and "goToPreviousSection" in reader_script, "pull-to-previous interaction missing")
+    require('loadSection(activeSectionIndex - 1, { edge: "end" })' in reader_script, "pull-to-previous must land on the previous section end")
+    require('"touchmove", handleTouchMove, { passive: false }' in reader_script, "touch edge pull must be cancelable at the boundary")
+    require('"wheel", handleWheel, { passive: false }' in reader_script, "trackpad edge pull interaction missing")
     require("pageOffsetRatio" in reader_script and "resumeRequested" in reader_script, "exact page resume missing")
     require("pageElementFor" in reader_script and "page.pageKey" in reader_script and "sourcePageLabel" in reader_script, "stable page-key resume missing")
     require('resume: "1"' in app_script and "progress.sourcePageLabel" in app_script, "resume card must display the saved source page")
     require("volume-01-index.json" in service_worker, "service worker does not cache book index")
-    require("sutra-library-v3-20260722-source-faithful" in service_worker, "service worker cache version was not bumped")
+    require("sutra-library-v4-20260722-section-edge-pull" in service_worker, "service worker cache version was not bumped")
 
     print(
         f"Site checks passed: {len(volume_index['sections'])} sections, {page_count} PDF pages, "
