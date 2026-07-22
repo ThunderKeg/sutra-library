@@ -1,14 +1,14 @@
-# 華嚴經漢語拼音版原始 PDF
+# 《大方廣佛華嚴經》汉语拼音版原始 PDF
 
-八冊 PDF 下載自圓道禪院的公開下載頁：
+八册 PDF 下载自圓道禪院的公开下载页：
 
 https://yuandao-world.org/2020/04/14/%E5%A4%A7%E6%96%B9%E5%BB%A3%E4%BD%9B%E8%8F%AF%E5%9A%B4%E7%B6%93-%E6%BC%A2%E8%AA%9E%E6%8B%BC%E9%9F%B3%E7%89%88%E9%9B%BB%E5%AD%90%E6%AA%94%E4%B8%8B%E8%BC%89/
 
-文件命名為 `2020-HuaYanJing-pinyin-01.pdf` 至 `2020-HuaYanJing-pinyin-08.pdf`。PDF 僅作本地轉換來源，已由 `.gitignore` 排除；網站發布的是生成后的 HTML/JSON，不會直接發布 PDF。
+文件命名为 `2020-HuaYanJing-pinyin-01.pdf` 至 `2020-HuaYanJing-pinyin-08.pdf`。PDF 仅作为本地转换来源，已由 `.gitignore` 排除；网站发布生成后的 HTML/JSON，不会直接发布 PDF。
 
-## 下載核驗（2026-07-22）
+## 下载核验（2026-07-22）
 
-| 冊次 | 位元組 | PDF 頁數 | SHA-256 |
+| 册次 | 字节数 | PDF 页数 | SHA-256 |
 | --- | ---: | ---: | --- |
 | 01 | 13,527,956 | 624 | `72fbbaeef60b227d705a1e145dbf020935012d51a84f87bb7b8c7356972ab1d4` |
 | 02 | 15,378,753 | 656 | `318531fa59c006558d1e5b7d3ad62ebd918697dedcc88501c08d2dd2adbb8e88` |
