@@ -75,6 +75,17 @@
         </div>
         <button class="primary-button audio-play-button" id="audioPlayButton" type="button">開始播放</button>
         <audio id="readerAudio" controls preload="none" crossorigin="anonymous"></audio>
+        <div class="audio-follow-settings" aria-label="音頻與經文聯動設定">
+          <div class="setting-row">
+            <label for="audioSeekOnScrollToggle">翻動經文時同步音頻</label>
+            <button class="switch" id="audioSeekOnScrollToggle" type="button" role="switch" aria-checked="false"><span></span></button>
+          </div>
+          <div class="setting-row">
+            <label for="audioResumeFollowToggle">翻動後繼續跟隨</label>
+            <button class="switch" id="audioResumeFollowToggle" type="button" role="switch" aria-checked="true"><span></span></button>
+          </div>
+        </div>
+        <button class="text-button audio-resume-follow" id="audioResumeFollowButton" type="button" hidden>恢復跟隨</button>
         <p class="audio-status" id="audioStatus" role="status" aria-live="polite">可從上次位置續播。</p>
       </div>
     </section>

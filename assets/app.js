@@ -3,7 +3,7 @@
 
   const THEME_ORDER = ["paper", "eye", "night"];
   const THEME_COLORS = { paper: "#263a31", eye: "#2f4638", night: "#17211c" };
-  const APP_VERSION = "20260723-audio-sources-v1";
+  const APP_VERSION = "20260723-audio-follow-v1";
   const UPDATE_INTERVAL_MS = 15 * 60 * 1000;
   let installPrompt = null;
   let serviceWorkerPromise = null;

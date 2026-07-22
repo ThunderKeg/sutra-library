@@ -1,5 +1,6 @@
 # Original source files are kept locally for rebuilding, but the public site ships HTML.
 sources/pdf/*.pdf
+sources/audio/**
 
 # Local preview and tooling artifacts
 .venv/

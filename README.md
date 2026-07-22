@@ -23,6 +23,19 @@ python -m pip install -r requirements.txt
 
 后续运行项目脚本前先激活 `.venv`，不要将依赖安装到系统 Python。
 
+音频对齐是可选的维护流程，需要另装本地语音识别依赖；原始音频、模型与识别中间结果都位于被 Git 忽略的 `sources/audio/`：
+
+```powershell
+python -m pip install -r requirements-audio.txt
+python scripts/download_huayan_audio.py
+python scripts/build_huayan_audio_alignment.py estimate
+python scripts/build_huayan_audio_alignment.py transcribe
+python scripts/build_huayan_audio_alignment.py align
+python scripts/check_huayan_audio_alignment.py
+```
+
+第一册 614 页的处理与复核状态记录在 [`docs/huayan-audio-alignment-progress.md`](docs/huayan-audio-alignment-progress.md)。对齐流程只生成独立时间数据，不修改章节正文。
+
 ## 本地预览
 
 ```powershell

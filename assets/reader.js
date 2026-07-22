@@ -5,6 +5,9 @@
   const PULL_THRESHOLD = 84;
   const PULL_EDGE_TOLERANCE = 3;
   const AUDIO_PROGRESS_KEY = "sutra-audio-progress-v1";
+  const AUDIO_SEEK_ON_SCROLL_KEY = "sutra-audio-seek-on-scroll-v1";
+  const AUDIO_RESUME_FOLLOW_KEY = "sutra-audio-resume-follow-v1";
+  const AUDIO_ALIGNMENT_URL = "./data/huayan/volume-01-audio-alignment.json";
   const FIRST_VOLUME_AUDIO = Object.freeze({
     "juan-01": { key: "huayan-juan-01", title: "第一卷", url: "https://wz.yyxcfg.com/a/a/4/1012.m4a" },
     "juan-02": { key: "huayan-juan-02", title: "第二卷", url: "https://wz.yyxcfg.com/a/a/4/1013.m4a" },
@@ -37,6 +40,9 @@
   const audioTrackTitle = document.getElementById("audioTrackTitle");
   const audioTrackReader = document.getElementById("audioTrackReader");
   const audioStatus = document.getElementById("audioStatus");
+  const audioSeekOnScrollToggle = document.getElementById("audioSeekOnScrollToggle");
+  const audioResumeFollowToggle = document.getElementById("audioResumeFollowToggle");
+  const audioResumeFollowButton = document.getElementById("audioResumeFollowButton");
   const progressLabel = document.getElementById("readerProgress");
   const currentSectionLabel = document.getElementById("currentSectionLabel");
   const footerSectionTitle = document.getElementById("footerSectionTitle");
@@ -65,6 +71,18 @@
   let wheelPullTimer = null;
   let audioSaveTimer = null;
   let currentAudioTrack = null;
+  let audioAlignment = null;
+  let audioAlignmentPromise = null;
+  let audioFollowEnabled = true;
+  let audioFollowRequest = 0;
+  let audioProgrammaticScroll = false;
+  let audioProgrammaticScrollTimer = null;
+  let manualScrollIntent = false;
+  let manualScrollIntentTimer = null;
+  let manualScrollActive = false;
+  let manualScrollTimer = null;
+  let audioSeekingFromText = false;
+  let audioRestoringProgress = false;
 
   function readStorage(key, fallback) {
     try {
@@ -76,6 +94,11 @@
 
   function writeStorage(key, value) {
     if (window.sutraApp) window.sutraApp.writeStorage(key, value);
+  }
+
+  function readBooleanPreference(key, fallback) {
+    const saved = readStorage(key, fallback ? "true" : "false");
+    return saved === "true";
   }
 
   function showToast(message) {
@@ -126,6 +149,7 @@
     closeToc();
     closeSettings();
     ensureAudioSource();
+    ensureAudioAlignment();
     audioPanel.dataset.open = "true";
     audioPanel.setAttribute("aria-hidden", "false");
     audioButton.setAttribute("aria-expanded", "true");
@@ -143,6 +167,7 @@
       return;
     }
     ensureAudioSource();
+    ensureAudioAlignment();
     audioPlayButton.disabled = true;
     audioStatus.textContent = `正在連接 ${currentAudioTrack.title}…`;
     try {
@@ -157,6 +182,166 @@
   function getAudioTrack(section) {
     if (bookId !== "huayan" || volumeId !== "01") return null;
     return FIRST_VOLUME_AUDIO[section.id] || null;
+  }
+
+  async function ensureAudioAlignment() {
+    if (audioAlignment || bookId !== "huayan" || volumeId !== "01") return audioAlignment;
+    if (audioAlignmentPromise) return audioAlignmentPromise;
+    audioAlignmentPromise = fetch(AUDIO_ALIGNMENT_URL)
+      .then((response) => {
+        if (!response.ok) throw new Error(`alignment ${response.status}`);
+        return response.json();
+      })
+      .then((payload) => {
+        payload.pagesByTrack = new Map();
+        payload.pagesByKey = new Map();
+        payload.pages.forEach((page) => {
+          if (!payload.pagesByTrack.has(page.track)) payload.pagesByTrack.set(page.track, []);
+          payload.pagesByTrack.get(page.track).push(page);
+          payload.pagesByKey.set(page.pageKey, page);
+        });
+        audioAlignment = payload;
+        return payload;
+      })
+      .catch(() => {
+        audioAlignmentPromise = null;
+        if (currentAudioTrack) audioStatus.textContent = "文字聯動暫時無法載入，音頻仍可播放。";
+        return null;
+      });
+    return audioAlignmentPromise;
+  }
+
+  function updateAudioFollowControls() {
+    audioSeekOnScrollToggle.setAttribute(
+      "aria-checked",
+      String(readBooleanPreference(AUDIO_SEEK_ON_SCROLL_KEY, false))
+    );
+    audioResumeFollowToggle.setAttribute(
+      "aria-checked",
+      String(readBooleanPreference(AUDIO_RESUME_FOLLOW_KEY, true))
+    );
+    audioResumeFollowButton.hidden = audioFollowEnabled || !currentAudioTrack;
+  }
+
+  function toggleAudioPreference(toggle, storageKey, fallback) {
+    const next = !readBooleanPreference(storageKey, fallback);
+    writeStorage(storageKey, String(next));
+    toggle.setAttribute("aria-checked", String(next));
+  }
+
+  function alignmentPageAtTime(currentTime) {
+    const trackNumber = currentAudioTrack?.url.match(/\/(\d+)\.m4a$/)?.[1];
+    const pages = audioAlignment?.pagesByTrack?.get(trackNumber) || [];
+    const spokenPages = pages.filter((page) => page.spoken && page.end > page.start);
+    if (!spokenPages.length) return null;
+    let activePage = spokenPages[0];
+    for (const page of spokenPages) {
+      if (currentTime < page.start) break;
+      activePage = page;
+      if (currentTime <= page.end) break;
+    }
+    return activePage;
+  }
+
+  function markAudioProgrammaticScroll() {
+    audioProgrammaticScroll = true;
+    window.clearTimeout(audioProgrammaticScrollTimer);
+    audioProgrammaticScrollTimer = window.setTimeout(() => { audioProgrammaticScroll = false; }, 180);
+  }
+
+  function scrollPageToAudio(page, currentTime) {
+    const element = pageElementFor(page.pageKey);
+    if (!element) return;
+    const duration = Math.max(0.001, page.end - page.start);
+    const progress = Math.max(0, Math.min(1, (currentTime - page.start) / duration));
+    const maxPageOffsetRatio = Math.max(0, 1 - viewport.clientWidth / Math.max(1, element.offsetWidth));
+    markAudioProgrammaticScroll();
+    restoreReadingPosition({
+      sourcePage: page.pageKey,
+      sourcePageLabel: element.dataset.sourcePageLabel,
+      pageOffsetRatio: maxPageOffsetRatio * progress
+    });
+  }
+
+  async function syncTextToAudio() {
+    if (!audioFollowEnabled || manualScrollActive || audioProgrammaticScroll || !currentAudioTrack) return;
+    if (!audioAlignment && !await ensureAudioAlignment()) return;
+    const page = alignmentPageAtTime(readerAudio.currentTime);
+    if (!page) return;
+    const currentSection = volumeIndex?.sections[activeSectionIndex];
+    if (currentSection?.id !== page.sectionId) {
+      const targetIndex = volumeIndex.sections.findIndex((section) => section.id === page.sectionId);
+      if (targetIndex < 0 || sectionLoading) return;
+      const request = ++audioFollowRequest;
+      await loadSection(targetIndex, { sourcePage: page.pageKey, pageOffsetRatio: 0 });
+      if (request !== audioFollowRequest) return;
+    }
+    scrollPageToAudio(page, readerAudio.currentTime);
+  }
+
+  function visiblePagePosition() {
+    const viewportRect = viewport.getBoundingClientRect();
+    const candidates = [...sutraText.querySelectorAll(".source-page")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      const visibleWidth = Math.max(0, Math.min(rect.right, viewportRect.right) - Math.max(rect.left, viewportRect.left));
+      return { element, rect, visibleWidth };
+    }).filter((item) => item.visibleWidth > 0).sort((a, b) => b.visibleWidth - a.visibleWidth);
+    const visible = candidates[0];
+    if (!visible) return null;
+    const maxOffset = Math.max(0, visible.rect.width - viewportRect.width);
+    const offset = Math.max(0, Math.min(maxOffset, visible.rect.right - viewportRect.right));
+    return {
+      pageKey: visible.element.dataset.sourcePage,
+      progress: maxOffset ? offset / maxOffset : 0
+    };
+  }
+
+  function seekAudioToVisibleText() {
+    if (!audioAlignment || !readerAudio.getAttribute("src") || !currentAudioTrack) return;
+    const position = visiblePagePosition();
+    const page = position ? audioAlignment.pagesByKey.get(position.pageKey) : null;
+    if (!page || !page.spoken || page.end <= page.start) return;
+    const nextTime = page.start + (page.end - page.start) * position.progress;
+    audioSeekingFromText = true;
+    readerAudio.currentTime = Math.max(0, Math.min(readerAudio.duration || nextTime, nextTime));
+  }
+
+  function markManualScrollIntent() {
+    if (audioProgrammaticScroll) return;
+    manualScrollIntent = true;
+    window.clearTimeout(manualScrollIntentTimer);
+    manualScrollIntentTimer = window.setTimeout(() => { manualScrollIntent = false; }, 1200);
+  }
+
+  function handleViewportScroll() {
+    updateProgress();
+    if (audioProgrammaticScroll || (!manualScrollIntent && !manualScrollActive)) return;
+    manualScrollActive = true;
+    audioFollowEnabled = false;
+    updateAudioFollowControls();
+    window.clearTimeout(manualScrollTimer);
+    manualScrollTimer = window.setTimeout(finishManualScroll, 320);
+  }
+
+  async function finishManualScroll() {
+    if (!manualScrollActive) return;
+    manualScrollActive = false;
+    manualScrollIntent = false;
+    if (readBooleanPreference(AUDIO_SEEK_ON_SCROLL_KEY, false)) {
+      await ensureAudioAlignment();
+      seekAudioToVisibleText();
+    }
+    if (readBooleanPreference(AUDIO_RESUME_FOLLOW_KEY, true)) {
+      audioFollowEnabled = true;
+      syncTextToAudio();
+    }
+    updateAudioFollowControls();
+  }
+
+  function resumeAudioFollowing() {
+    audioFollowEnabled = true;
+    updateAudioFollowControls();
+    syncTextToAudio();
   }
 
   function readAudioProgress() {
@@ -189,6 +374,7 @@
     if (!currentAudioTrack || readerAudio.dataset.trackKey !== currentAudioTrack.key) return;
     const savedTime = Number(readAudioProgress()[currentAudioTrack.key]?.currentTime);
     if (!Number.isFinite(savedTime) || savedTime <= 0 || !Number.isFinite(readerAudio.duration)) return;
+    audioRestoringProgress = true;
     readerAudio.currentTime = savedTime < readerAudio.duration - 3 ? savedTime : 0;
   }
 
@@ -210,6 +396,7 @@
       audioStatus.textContent = "請進入第一卷至第十卷正文後播放。";
       audioButton.setAttribute("aria-label", "打開誦經音頻：本節暫無配套音頻");
       audioButton.dataset.playing = "false";
+      updateAudioFollowControls();
       return;
     }
 
@@ -228,6 +415,7 @@
     currentAudioTrack = nextTrack;
     readerAudio.hidden = false;
     readerAudio.dataset.trackKey = nextTrack.key;
+    updateAudioFollowControls();
   }
 
   function scrollMetrics() {
@@ -472,6 +660,7 @@
 
   function handleTouchStart(event) {
     if (sectionLoading || event.touches.length !== 1) return;
+    markManualScrollIntent();
     pullStartX = event.touches[0].clientX;
     pullStartY = event.touches[0].clientY;
     pullDirection = hasPreviousSection() && isAtSectionStart()
@@ -521,6 +710,7 @@
   }
 
   function handleWheel(event) {
+    markManualScrollIntent();
     if (sectionLoading || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
     const direction = hasPreviousSection() && isAtSectionStart() && event.deltaX > 0
       ? "previous"
@@ -654,6 +844,7 @@
 
   async function initialize() {
     updateSettingsUi();
+    updateAudioFollowControls();
     try {
       const response = await fetch(indexUrl);
       if (!response.ok) throw new Error(`index ${response.status}`);
@@ -689,6 +880,13 @@
   settingsButton.addEventListener("click", () => settingsPanel.dataset.open === "true" ? closeSettings() : openSettings());
   audioButton.addEventListener("click", () => audioPanel.dataset.open === "true" ? closeAudio() : openAudio());
   audioPlayButton.addEventListener("click", toggleAudioPlayback);
+  audioSeekOnScrollToggle.addEventListener("click", () => {
+    toggleAudioPreference(audioSeekOnScrollToggle, AUDIO_SEEK_ON_SCROLL_KEY, false);
+  });
+  audioResumeFollowToggle.addEventListener("click", () => {
+    toggleAudioPreference(audioResumeFollowToggle, AUDIO_RESUME_FOLLOW_KEY, true);
+  });
+  audioResumeFollowButton.addEventListener("click", resumeAudioFollowing);
   document.getElementById("closeAudio").addEventListener("click", closeAudio);
   document.getElementById("closeSettings").addEventListener("click", closeSettings);
   document.getElementById("fontDecrease").addEventListener("click", () => shiftFontScale(-1));
@@ -700,7 +898,18 @@
   document.addEventListener("sutra:theme", updateSettingsUi);
 
   readerAudio.addEventListener("loadedmetadata", restoreAudioProgress);
-  readerAudio.addEventListener("timeupdate", scheduleAudioSave);
+  readerAudio.addEventListener("timeupdate", () => {
+    scheduleAudioSave();
+    if (!readerAudio.paused) syncTextToAudio();
+  });
+  readerAudio.addEventListener("seeking", () => {
+    if (!audioSeekingFromText && !audioRestoringProgress && !manualScrollActive) resumeAudioFollowing();
+  });
+  readerAudio.addEventListener("seeked", () => {
+    audioSeekingFromText = false;
+    audioRestoringProgress = false;
+    if (audioFollowEnabled) syncTextToAudio();
+  });
   readerAudio.addEventListener("play", () => {
     audioButton.dataset.playing = "true";
     audioPlayButton.textContent = "暫停播放";
@@ -722,7 +931,8 @@
     if (currentAudioTrack) audioStatus.textContent = "音頻暫時無法載入，請檢查網路後重試。";
   });
 
-  viewport.addEventListener("scroll", updateProgress, { passive: true });
+  viewport.addEventListener("scroll", handleViewportScroll, { passive: true });
+  viewport.addEventListener("pointerdown", markManualScrollIntent, { passive: true });
   viewport.addEventListener("touchstart", handleTouchStart, { passive: true });
   viewport.addEventListener("touchmove", handleTouchMove, { passive: false });
   viewport.addEventListener("touchend", handleTouchEnd, { passive: true });
@@ -733,8 +943,14 @@
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") { closeToc(); closeSettings(); closeAudio(); }
     if (event.target.closest("button, a, input, audio")) return;
-    if (event.key === "ArrowLeft" || event.key === "PageDown") viewport.scrollBy({ left: -viewport.clientWidth * 0.82, behavior: "smooth" });
-    if (event.key === "ArrowRight" || event.key === "PageUp") viewport.scrollBy({ left: viewport.clientWidth * 0.82, behavior: "smooth" });
+    if (event.key === "ArrowLeft" || event.key === "PageDown") {
+      markManualScrollIntent();
+      viewport.scrollBy({ left: -viewport.clientWidth * 0.82, behavior: "smooth" });
+    }
+    if (event.key === "ArrowRight" || event.key === "PageUp") {
+      markManualScrollIntent();
+      viewport.scrollBy({ left: viewport.clientWidth * 0.82, behavior: "smooth" });
+    }
   });
 
   initialize();
