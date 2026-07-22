@@ -1,0 +1,8 @@
+# Original source files are kept locally for rebuilding, but the public site ships HTML.
+sources/pdf/*.pdf
+
+# Local preview and tooling artifacts
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="paper" data-reader-font-scale="100" data-pinyin="on">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=yes">
+    <meta name="theme-color" content="#263a31">
+    <meta name="description" content="大方廣佛華嚴經第一冊繁體豎排拼音閱讀器。">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="藏經閣">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+    <link rel="icon" href="./assets/icons/icon-192.png">
+    <link rel="stylesheet" href="./assets/styles.css">
+    <script src="./assets/theme-init.js"></script>
+    <title>華嚴經第一冊 · 藏經閣</title>
+  </head>
+  <body class="reader-page">
+    <header class="reader-header">
+      <button class="icon-button" id="tocButton" type="button" aria-label="打開目錄" aria-expanded="false" aria-controls="tocDrawer">目錄</button>
+      <div class="reader-heading">
+        <strong id="readerTitle">大方廣佛華嚴經 · 第一冊</strong>
+        <span id="currentSectionLabel">載入中…</span>
+      </div>
+      <div class="reader-header-actions">
+        <span class="reader-progress" id="readerProgress" aria-live="polite">0%</span>
+        <button class="icon-button aa-button" id="settingsButton" type="button" aria-label="閱讀設定" aria-expanded="false" aria-controls="settingsPanel">Aa</button>
+      </div>
+    </header>
+
+    <main class="reading-viewport" id="readingViewport" tabindex="0" aria-label="經文閱讀區">
+      <article class="sutra-track" id="sutraText" aria-live="polite">
+        <div class="reader-loading">
+          <span class="loading-seal" aria-hidden="true">經</span>
+          <p>正在展卷…</p>
+        </div>
+      </article>
+    </main>
+
+    <footer class="reader-footer">
+      <button id="previousSection" type="button" aria-label="上一節">← 上一節</button>
+      <button class="section-jump" id="sectionJump" type="button" aria-label="打開目錄">
+        <span id="footerSectionTitle">載入中</span>
+        <small id="sourcePageLabel">原書頁碼</small>
+      </button>
+      <button id="nextSection" type="button" aria-label="下一節">下一節 →</button>
+    </footer>
+
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+    <aside class="toc-drawer" id="tocDrawer" aria-hidden="true" aria-labelledby="tocTitle">
+      <div class="drawer-header">
+        <div>
+          <p class="eyebrow">第一冊</p>
+          <h2 id="tocTitle">經文目錄</h2>
+        </div>
+        <button class="dialog-close" id="closeToc" type="button" aria-label="關閉目錄">×</button>
+      </div>
+      <nav id="tocList" aria-label="第一冊目錄"></nav>
+      <div class="drawer-footer">
+        <a href="./index.html">返回藏書閣</a>
+        <button class="text-button install-button" type="button" data-install hidden>安裝到手機</button>
+      </div>
+    </aside>
+
+    <section class="settings-panel" id="settingsPanel" aria-hidden="true" aria-labelledby="settingsTitle">
+      <div class="settings-header">
+        <h2 id="settingsTitle">閱讀設定</h2>
+        <button class="dialog-close" id="closeSettings" type="button" aria-label="關閉閱讀設定">×</button>
+      </div>
+      <div class="setting-row">
+        <span>文字大小</span>
+        <div class="font-controls" role="group" aria-label="調整文字大小">
+          <button id="fontDecrease" type="button" aria-label="縮小文字">字−</button>
+          <button id="fontReset" type="button" aria-label="還原文字大小"><span id="fontScaleLabel">100%</span></button>
+          <button id="fontIncrease" type="button" aria-label="放大文字">字＋</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <label for="pinyinToggle">漢語拼音</label>
+        <button class="switch" id="pinyinToggle" type="button" role="switch" aria-checked="true"><span></span></button>
+      </div>
+      <fieldset class="theme-options">
+        <legend>閱讀色調</legend>
+        <button type="button" data-theme-option="paper"><i></i>宣紙</button>
+        <button type="button" data-theme-option="eye"><i></i>護眼</button>
+        <button type="button" data-theme-option="night"><i></i>夜讀</button>
+      </fieldset>
+      <p class="settings-note">字級、色調、拼音顯示與閱讀進度只保存在這台裝置。</p>
+    </section>
+
+    <dialog class="install-dialog" id="installDialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="關閉">×</button>
+        <p class="eyebrow">安裝到手機</p>
+        <h2>像 App 一樣打開藏經閣</h2>
+        <div id="installInstructions"></div>
+        <button class="primary-button" value="close">知道了</button>
+      </form>
+    </dialog>
+
+    <div class="reader-toast" id="readerToast" role="status" aria-live="polite" hidden></div>
+
+    <script src="./assets/app.js" defer></script>
+    <script src="./assets/reader.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant" data-theme="paper" data-reader-font-scale="100" data-pinyin="on">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#263a31">
+    <meta name="description" content="為手機閱讀而排版的繁體、豎排、拼音經書館。">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="藏經閣">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+    <link rel="icon" href="./assets/icons/icon-192.png">
+    <link rel="stylesheet" href="./assets/styles.css">
+    <script src="./assets/theme-init.js"></script>
+    <title>藏經閣 · 日常讀誦</title>
+  </head>
+  <body class="library-page">
+    <header class="site-header">
+      <a class="brand" href="./index.html" aria-label="藏經閣首頁">
+        <span class="brand-mark" aria-hidden="true">經</span>
+        <span>
+          <strong>藏經閣</strong>
+          <small>日常讀誦 · 清淨安住</small>
+        </span>
+      </a>
+      <div class="header-actions">
+        <button class="quiet-button" type="button" data-theme-cycle aria-label="切換閱讀色調">色調</button>
+        <button class="primary-button install-button" type="button" data-install hidden>安裝到手機</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="library-hero" aria-labelledby="hero-title">
+        <div class="hero-seal" aria-hidden="true">
+          <span>華</span><span>嚴</span>
+        </div>
+        <div class="hero-copy">
+          <p class="eyebrow">繁體 · 豎排 · 拼音 · 離線</p>
+          <h1 id="hero-title">把經書，安放在每日可抵達之處。</h1>
+          <p>專為長時間讀誦整理的行動藏經閣。保留繁體原文，以豎排與漢語拼音呈現；字級、護眼色調與閱讀進度都會留在你的裝置上。</p>
+          <div class="hero-actions">
+            <a class="primary-button" href="./reader.html?book=huayan&amp;volume=01">開始讀第一冊</a>
+            <a class="text-link" href="#library">查看藏書目錄</a>
+          </div>
+          <a class="resume-card" id="resumeCard" href="./reader.html?book=huayan&amp;volume=01" hidden>
+            <span>
+              <small>上次讀到</small>
+              <strong id="resumeTitle">第一冊</strong>
+            </span>
+            <span aria-hidden="true">續讀 →</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="collection-summary" aria-label="藏書狀態">
+        <div><strong>8</strong><span>冊原典已歸檔</span></div>
+        <div><strong>1</strong><span>冊完成網頁化</span></div>
+        <div><strong>615</strong><span>頁全冊內容</span></div>
+        <div><strong>離線</strong><span>安裝後可讀</span></div>
+      </section>
+
+      <section class="library-section" id="library" aria-labelledby="library-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">藏書目錄</p>
+            <h2 id="library-title">已入藏經書</h2>
+          </div>
+          <p>以資料目錄管理，後續可繼續加入其他經書與冊次。</p>
+        </div>
+        <div class="book-grid" id="libraryGrid" aria-live="polite">
+          <article class="book-card book-card-loading">正在整理藏書目錄…</article>
+        </div>
+      </section>
+
+      <section class="reading-principles" aria-labelledby="principles-title">
+        <p class="eyebrow">閱讀設計</p>
+        <h2 id="principles-title">少一些介面，多一些安定。</h2>
+        <div class="principle-grid">
+          <article><span>一</span><h3>豎排讀誦</h3><p>由上而下、由右向左，保留漢文經典的閱讀節奏。</p></article>
+          <article><span>二</span><h3>拼音隨字</h3><p>每個漢字附帶聲調拼音，也可一鍵隱藏，專心看正文。</p></article>
+          <article><span>三</span><h3>長讀護眼</h3><p>宣紙、青灰護眼與夜讀三種色調，配合七級字號。</p></article>
+          <article><span>四</span><h3>記住進度</h3><p>自動保存卷次與頁內位置，再次打開可直接續讀。</p></article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>藏經閣 · 華嚴經第一冊原型</span>
+      <a href="https://yuandao-world.org/2020/04/14/%E5%A4%A7%E6%96%B9%E5%BB%A3%E4%BD%9B%E8%8F%AF%E5%9A%B4%E7%B6%93-%E6%BC%A2%E8%AA%9E%E6%8B%BC%E9%9F%B3%E7%89%88%E9%9B%BB%E5%AD%90%E6%AA%94%E4%B8%8B%E8%BC%89/" target="_blank" rel="noreferrer">原始 PDF 來源</a>
+    </footer>
+
+    <dialog class="install-dialog" id="installDialog">
+      <form method="dialog">
+        <button class="dialog-close" aria-label="關閉">×</button>
+        <p class="eyebrow">安裝到手機</p>
+        <h2>像 App 一樣打開藏經閣</h2>
+        <div id="installInstructions"></div>
+        <button class="primary-button" value="close">知道了</button>
+      </form>
+    </dialog>
+
+    <script src="./assets/app.js" defer></script>
+  </body>
+</html>

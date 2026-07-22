@@ -1,0 +1,25 @@
+{
+  "updated": "2026-07-22",
+  "books": [
+    {
+      "id": "huayan",
+      "title": "大方廣佛華嚴經",
+      "shortTitle": "華嚴經",
+      "edition": "漢語拼音版 · 八十華嚴",
+      "translator": "唐于闐國三藏沙門實叉難陀譯",
+      "description": "全八冊原始 PDF 已歸檔。第一冊完成繁體豎排網頁化，含卷一至卷十、逐字拼音、原書頁碼與斷點續讀。",
+      "sourceName": "圓道禪院",
+      "sourceUrl": "https://yuandao-world.org/2020/04/14/%E5%A4%A7%E6%96%B9%E5%BB%A3%E4%BD%9B%E8%8F%AF%E5%9A%B4%E7%B6%93-%E6%BC%A2%E8%AA%9E%E6%8B%BC%E9%9F%B3%E7%89%88%E9%9B%BB%E5%AD%90%E6%AA%94%E4%B8%8B%E8%BC%89/",
+      "volumes": [
+        {"id": "01", "label": "第一冊", "status": "ready", "href": "./reader.html?book=huayan&volume=01"},
+        {"id": "02", "label": "第二冊", "status": "source-downloaded"},
+        {"id": "03", "label": "第三冊", "status": "source-downloaded"},
+        {"id": "04", "label": "第四冊", "status": "source-downloaded"},
+        {"id": "05", "label": "第五冊", "status": "source-downloaded"},
+        {"id": "06", "label": "第六冊", "status": "source-downloaded"},
+        {"id": "07", "label": "第七冊", "status": "source-downloaded"},
+        {"id": "08", "label": "第八冊", "status": "source-downloaded"}
+      ]
+    }
+  ]
+}
