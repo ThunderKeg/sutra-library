@@ -8,6 +8,19 @@
 
 项目协作规则见 [`AGENTS.md`](AGENTS.md)，华严经内容与排版要求见 [`docs/huayan-typesetting.md`](docs/huayan-typesetting.md)。
 
+## Python 环境与依赖
+
+在仓库根目录创建独立虚拟环境，并通过该环境安装项目依赖：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+后续运行项目脚本前先激活 `.venv`，不要将依赖安装到系统 Python。
+
 ## 本地预览
 
 ```powershell
@@ -21,7 +34,6 @@ python -m http.server 8000 --bind 127.0.0.1
 原始 PDF 放在 `sources/pdf/2020-HuaYanJing-pinyin-01.pdf`，它已被 `.gitignore` 排除，不会随 GitHub Pages 发布。
 
 ```powershell
-python -m pip install -r requirements.txt
 python scripts/build_huayan.py
 python scripts/generate_icons.py
 python scripts/check_site.py

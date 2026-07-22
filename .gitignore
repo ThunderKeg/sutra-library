@@ -2,6 +2,7 @@
 sources/pdf/*.pdf
 
 # Local preview and tooling artifacts
+.venv/
 __pycache__/
 *.pyc
 .idea/
