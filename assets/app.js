@@ -3,11 +3,14 @@
 
   const THEME_ORDER = ["paper", "eye", "night"];
   const THEME_COLORS = { paper: "#263a31", eye: "#2f4638", night: "#17211c" };
-  const APP_VERSION = "20260722-manual-offline-v1";
+  const APP_VERSION = "20260722-explicit-update-v1";
   const UPDATE_INTERVAL_MS = 15 * 60 * 1000;
   let installPrompt = null;
   let serviceWorkerPromise = null;
   let serviceWorkerUpdatesConfigured = false;
+  let serviceWorkerRegistration = null;
+  let serviceWorkerUpdateRequested = false;
+  let serviceWorkerReloading = false;
 
   document.documentElement.dataset.appVersion = APP_VERSION;
 
@@ -175,6 +178,61 @@
     return serviceWorkerPromise;
   }
 
+  function ensureUpdatePrompt() {
+    let prompt = document.getElementById("updatePrompt");
+    if (prompt) return prompt;
+    prompt = document.createElement("section");
+    prompt.className = "update-prompt";
+    prompt.id = "updatePrompt";
+    prompt.setAttribute("role", "status");
+    prompt.setAttribute("aria-live", "polite");
+    prompt.setAttribute("aria-label", "版本更新");
+    prompt.hidden = true;
+    prompt.innerHTML = `
+      <div class="update-prompt-copy">
+        <strong>藏經閣有新版本</strong>
+        <span>更新已準備好，點按後立即套用。</span>
+      </div>
+      <div class="update-prompt-actions">
+        <button class="update-prompt-dismiss" type="button" data-update-later>稍後</button>
+        <button class="primary-button" type="button" data-apply-update>立即更新</button>
+      </div>`;
+    document.body.append(prompt);
+
+    prompt.querySelector("[data-update-later]").addEventListener("click", () => { prompt.hidden = true; });
+    prompt.querySelector("[data-apply-update]").addEventListener("click", () => {
+      const waitingWorker = serviceWorkerRegistration?.waiting;
+      if (!waitingWorker) {
+        prompt.hidden = true;
+        return;
+      }
+      serviceWorkerUpdateRequested = true;
+      const button = prompt.querySelector("[data-apply-update]");
+      button.disabled = true;
+      button.textContent = "正在更新…";
+      waitingWorker.postMessage({ type: "SKIP_WAITING" });
+    });
+    return prompt;
+  }
+
+  function showUpdatePrompt(registration) {
+    if (!registration.waiting || !navigator.serviceWorker.controller) return;
+    serviceWorkerRegistration = registration;
+    const prompt = ensureUpdatePrompt();
+    const button = prompt.querySelector("[data-apply-update]");
+    button.disabled = false;
+    button.textContent = "立即更新";
+    prompt.hidden = false;
+  }
+
+  function watchInstallingWorker(registration) {
+    const worker = registration.installing;
+    if (!worker) return;
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "installed") showUpdatePrompt(registration);
+    });
+  }
+
   function updateOfflineDownloadUi(indexUrl, state) {
     document.querySelectorAll("[data-offline-download]").forEach((button) => {
       if (button.dataset.indexUrl !== indexUrl) return;
@@ -241,8 +299,18 @@
   async function registerServiceWorker() {
     try {
       const registration = await ensureServiceWorker();
+      serviceWorkerRegistration = registration;
       if (serviceWorkerUpdatesConfigured) return;
       serviceWorkerUpdatesConfigured = true;
+      registration.addEventListener("updatefound", () => watchInstallingWorker(registration));
+      watchInstallingWorker(registration);
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!serviceWorkerUpdateRequested || serviceWorkerReloading) return;
+        serviceWorkerReloading = true;
+        window.location.reload();
+      });
+      showUpdatePrompt(registration);
+
       let updateInFlight = false;
       const checkForUpdate = async () => {
         if (updateInFlight) return;
@@ -253,6 +321,7 @@
           // Offline reading remains available; retry on the next foreground check.
         } finally {
           updateInFlight = false;
+          showUpdatePrompt(registration);
         }
       };
 

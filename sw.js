@@ -1,7 +1,12 @@
 const CACHE_PREFIX = "sutra-library-v";
-const CACHE_VERSION = "sutra-library-v10-20260722-manual-offline";
+const CACHE_VERSION = "sutra-library-v11-20260722-explicit-update";
 const OFFLINE_BOOK_CACHE = "sutra-library-offline-books-v1";
 const BOOK_INDEX_URL = "./data/huayan/volume-01-index.json";
+const LEGACY_AUTO_UPDATE_CACHES = new Set([
+  "sutra-library-v8-20260722-auto-update",
+  "sutra-library-v9-20260722-reader-home",
+  "sutra-library-v10-20260722-manual-offline"
+]);
 const bookCacheJobs = new Map();
 const bookCacheSubscribers = new Map();
 const APP_SHELL = [
@@ -99,20 +104,23 @@ function cacheBookAssets(indexUrl) {
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
+    const existingKeys = await caches.keys();
     const cache = await caches.open(CACHE_VERSION);
     await cache.addAll(APP_SHELL);
-    await self.skipWaiting();
+    // One-time bridge from releases that cannot display an explicit update prompt.
+    if (existingKeys.some((key) => LEGACY_AUTO_UPDATE_CACHES.has(key))) await self.skipWaiting();
   })());
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
+    const requiresLegacyReload = keys.some((key) => LEGACY_AUTO_UPDATE_CACHES.has(key));
     const staleKeys = keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_VERSION);
     await Promise.all(staleKeys.map((key) => caches.delete(key)));
     await self.clients.claim();
 
-    if (staleKeys.length) {
+    if (requiresLegacyReload) {
       const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
       await Promise.all(windows.map(async (client) => {
         try {
@@ -126,6 +134,10 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    event.waitUntil(self.skipWaiting());
+    return;
+  }
   if (event.data?.type !== "CACHE_BOOK") return;
   const indexUrl = normalizeBookIndexUrl(event.data.indexUrl);
   const port = event.ports?.[0];

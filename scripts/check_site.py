@@ -153,19 +153,20 @@ def main() -> int:
     require("volume-01-index.json" in service_worker, "service worker does not cache book index")
     require('updateViaCache: "none"' in app_script and "registration.update()" in app_script, "foreground service-worker update checks missing")
     require('"visibilitychange"' in app_script and '"focus"' in app_script and '"online"' in app_script, "update checks must run when the PWA returns online or foreground")
-    require("clients.matchAll" in service_worker and "client.navigate(client.url)" in service_worker, "active PWA clients are not refreshed after an update")
+    require("updatefound" in app_script and "registration.waiting" in app_script, "explicit service-worker update discovery missing")
+    require("立即更新" in app_script and "showUpdatePrompt" in app_script, "visible update prompt missing")
+    require("controllerchange" in app_script and "serviceWorkerUpdateRequested" in app_script, "user-approved update reload missing")
+    require('postMessage({ type: "SKIP_WAITING" })' in app_script and 'event.data?.type === "SKIP_WAITING"' in service_worker, "user-approved service-worker activation missing")
+    require("LEGACY_AUTO_UPDATE_CACHES" in service_worker and "requiresLegacyReload" in service_worker, "legacy update migration bridge missing")
     require("data-offline-download" in app_script and "data-offline-download" in reader_html, "manual whole-volume download controls missing")
     require("MessageChannel" in app_script and 'worker.postMessage({ type: "CACHE_BOOK", indexUrl }' in app_script, "manual offline download messaging missing")
     require("readyRegistration.active?.postMessage" not in app_script, "whole-volume download must not start automatically")
     require('event.data?.type !== "CACHE_BOOK"' in service_worker and "CACHE_BOOK_PROGRESS" in service_worker, "service worker manual download progress missing")
     require("bookCacheJobs" in service_worker and "for (const asset of bookAssets)" in service_worker, "manual download must be deduplicated and incremental")
     require("OFFLINE_BOOK_CACHE" in service_worker, "whole-volume downloads must survive app-shell cache updates")
-    require("sutra-library-v10-20260722-manual-offline" in service_worker, "service worker cache version was not bumped")
-    require(
-        '<a class="icon-button reader-home-button" href="./index.html" aria-label="返回藏經閣首頁">首頁</a>'
-        in reader_html,
-        "reader header is missing the persistent home link",
-    )
+    require("sutra-library-v11-20260722-explicit-update" in service_worker, "service worker cache version was not bumped")
+    require("reader-home-button" not in reader_html, "reader header must not duplicate the drawer home link")
+    require('<a href="./index.html">返回藏書閣</a>' in reader_html, "reader drawer home link missing")
 
     print(
         f"Site checks passed: {len(volume_index['sections'])} sections, {page_count} PDF pages, "
