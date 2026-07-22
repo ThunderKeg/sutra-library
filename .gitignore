@@ -4,5 +4,6 @@ sources/pdf/*.pdf
 # Local preview and tooling artifacts
 __pycache__/
 *.pyc
+.idea/
 .DS_Store
 Thumbs.db

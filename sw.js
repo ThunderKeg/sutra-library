@@ -1,7 +1,9 @@
-const CACHE_PREFIX = "sutra-library-";
-const CACHE_VERSION = "sutra-library-v8-20260722-auto-update";
+const CACHE_PREFIX = "sutra-library-v";
+const CACHE_VERSION = "sutra-library-v10-20260722-manual-offline";
+const OFFLINE_BOOK_CACHE = "sutra-library-offline-books-v1";
 const BOOK_INDEX_URL = "./data/huayan/volume-01-index.json";
-let bookCachePromise = null;
+const bookCacheJobs = new Map();
+const bookCacheSubscribers = new Map();
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -20,27 +22,79 @@ const APP_SHELL = [
   BOOK_INDEX_URL
 ];
 
-function cacheBookAssets() {
-  if (bookCachePromise) return bookCachePromise;
-  bookCachePromise = (async () => {
-    const cache = await caches.open(CACHE_VERSION);
+function normalizeBookIndexUrl(value) {
+  try {
+    const url = new URL(value || BOOK_INDEX_URL, self.registration.scope);
+    const dataRoot = new URL("./data/", self.registration.scope);
+    if (url.origin !== self.location.origin || !url.pathname.startsWith(dataRoot.pathname) || !url.pathname.endsWith("-index.json")) return null;
+    return url.href;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function notifyBookCache(indexUrl, message, isFinal = false) {
+  const subscribers = bookCacheSubscribers.get(indexUrl) || new Set();
+  subscribers.forEach((port) => {
     try {
-      const response = await fetch(BOOK_INDEX_URL, { cache: "no-cache" });
-      if (!response.ok) return;
-      await cache.put(BOOK_INDEX_URL, response.clone());
-      const index = await response.json();
-      const bookAssets = [
-        ...index.sections.map((section) => `./${section.content}`),
-        ...(index.offlineAssets || []).map((asset) => `./${asset}`)
-      ];
-      const cachedMatches = await Promise.all(bookAssets.map((asset) => cache.match(asset)));
-      const missingAssets = bookAssets.filter((_asset, index) => !cachedMatches[index]);
-      if (missingAssets.length) await cache.addAll(missingAssets);
+      port.postMessage(message);
+      if (isFinal) port.close();
     } catch (_error) {
-      // Individual book assets are cached on first read when background warming fails.
+      subscribers.delete(port);
     }
-  })().finally(() => { bookCachePromise = null; });
-  return bookCachePromise;
+  });
+  if (isFinal) bookCacheSubscribers.delete(indexUrl);
+}
+
+function cacheBookAssets(indexUrl) {
+  if (bookCacheJobs.has(indexUrl)) return bookCacheJobs.get(indexUrl);
+  const job = (async () => {
+    const cache = await caches.open(OFFLINE_BOOK_CACHE);
+    try {
+      const response = await fetch(indexUrl, { cache: "no-cache" });
+      if (!response.ok) throw new Error(`index ${response.status}`);
+      await cache.put(indexUrl, response.clone());
+      const index = await response.json();
+      const bookAssets = [...new Set([
+        ...index.sections.map((section) => new URL(section.content, self.registration.scope).href),
+        ...(index.offlineAssets || []).map((asset) => new URL(asset, self.registration.scope).href)
+      ])];
+      let completed = 0;
+      const failures = [];
+      notifyBookCache(indexUrl, { type: "CACHE_BOOK_PROGRESS", completed, total: bookAssets.length });
+
+      // This intentionally runs only after a user request and proceeds one file at a time.
+      for (const asset of bookAssets) {
+        try {
+          let cached = await cache.match(asset);
+          if (!cached) {
+            cached = await caches.match(asset, { ignoreSearch: true });
+            if (cached) await cache.put(asset, cached.clone());
+            else {
+              const assetResponse = await fetch(asset);
+              if (!assetResponse.ok) throw new Error(`asset ${assetResponse.status}`);
+              await cache.put(asset, assetResponse);
+            }
+          }
+        } catch (_error) {
+          failures.push(asset);
+        }
+        completed += 1;
+        notifyBookCache(indexUrl, { type: "CACHE_BOOK_PROGRESS", completed, total: bookAssets.length });
+      }
+
+      if (failures.length) throw new Error(`${failures.length} assets failed`);
+      const result = { type: "CACHE_BOOK_COMPLETE", total: bookAssets.length };
+      notifyBookCache(indexUrl, result, true);
+      return result;
+    } catch (_error) {
+      const result = { type: "CACHE_BOOK_ERROR", message: "下載未完成；已保存的部分不會重複下載。" };
+      notifyBookCache(indexUrl, result, true);
+      return result;
+    }
+  })().finally(() => { bookCacheJobs.delete(indexUrl); });
+  bookCacheJobs.set(indexUrl, job);
+  return job;
 }
 
 self.addEventListener("install", (event) => {
@@ -72,7 +126,19 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data?.type === "CACHE_BOOK") event.waitUntil(cacheBookAssets());
+  if (event.data?.type !== "CACHE_BOOK") return;
+  const indexUrl = normalizeBookIndexUrl(event.data.indexUrl);
+  const port = event.ports?.[0];
+  if (!indexUrl) {
+    port?.postMessage({ type: "CACHE_BOOK_ERROR", message: "無法識別這冊經書。" });
+    port?.close();
+    return;
+  }
+  if (port) {
+    if (!bookCacheSubscribers.has(indexUrl)) bookCacheSubscribers.set(indexUrl, new Set());
+    bookCacheSubscribers.get(indexUrl).add(port);
+  }
+  event.waitUntil(cacheBookAssets(indexUrl));
 });
 
 self.addEventListener("fetch", (event) => {

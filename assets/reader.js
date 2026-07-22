@@ -23,6 +23,8 @@
   const fontScaleLabel = document.getElementById("fontScaleLabel");
   const pinyinToggle = document.getElementById("pinyinToggle");
   const toast = document.getElementById("readerToast");
+  const offlineDownloadButton = document.querySelector("[data-offline-download]");
+  if (offlineDownloadButton) offlineDownloadButton.dataset.indexUrl = indexUrl;
 
   let volumeIndex = null;
   let activeSectionIndex = 0;

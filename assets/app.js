@@ -3,9 +3,11 @@
 
   const THEME_ORDER = ["paper", "eye", "night"];
   const THEME_COLORS = { paper: "#263a31", eye: "#2f4638", night: "#17211c" };
-  const APP_VERSION = "20260722-auto-update-v3";
+  const APP_VERSION = "20260722-manual-offline-v1";
   const UPDATE_INTERVAL_MS = 15 * 60 * 1000;
   let installPrompt = null;
+  let serviceWorkerPromise = null;
+  let serviceWorkerUpdatesConfigured = false;
 
   document.documentElement.dataset.appVersion = APP_VERSION;
 
@@ -50,8 +52,8 @@
     if (!dialog || !instructions) return;
 
     instructions.innerHTML = isIos()
-      ? "<p>在 Safari 底部點按「分享」，再選「加入主畫面」。第一次連線開啟後，第一冊即可離線閱讀。</p>"
-      : "<p>打開瀏覽器選單，選擇「安裝應用程式」或「加到主畫面」。第一次連線開啟後，第一冊即可離線閱讀。</p>";
+      ? "<p>在 Safari 底部點按「分享」，再選「加入主畫面」。安裝後按章節載入；如需完整離線閱讀，請主動下載整冊。</p>"
+      : "<p>打開瀏覽器選單，選擇「安裝應用程式」或「加到主畫面」。安裝後按章節載入；如需完整離線閱讀，請主動下載整冊。</p>";
     if (typeof dialog.showModal === "function") dialog.showModal();
   }
 
@@ -95,6 +97,13 @@
   }
 
   function bookMarkup(book) {
+    const readyVolume = book.volumes.find((volume) => volume.status === "ready");
+    const offlineDownload = readyVolume
+      ? `<div class="offline-download">
+          <button class="text-button" type="button" data-offline-download data-index-url="./data/${escapeHtml(book.id)}/volume-${escapeHtml(readyVolume.id)}-index.json">下載整冊離線閱讀</button>
+          <small data-offline-status aria-live="polite">首次只載入當前章節；點按後才下載整冊。</small>
+        </div>`
+      : "";
     return `
       <article class="book-card">
         <div class="book-spine" aria-hidden="true"><span>${escapeHtml(book.shortTitle)}</span></div>
@@ -108,6 +117,7 @@
             <a class="primary-button" href="${escapeHtml(book.volumes[0].href)}">展卷讀誦</a>
             <a class="text-link" href="${escapeHtml(book.sourceUrl)}" target="_blank" rel="noreferrer">文本來源 · ${escapeHtml(book.sourceName)}</a>
           </div>
+          ${offlineDownload}
         </div>
       </article>`;
   }
@@ -152,12 +162,87 @@
     }
   }
 
-  async function registerServiceWorker() {
-    try {
-      const registration = await navigator.serviceWorker.register("./sw.js", {
+  function ensureServiceWorker() {
+    if (!serviceWorkerPromise) {
+      serviceWorkerPromise = navigator.serviceWorker.register("./sw.js", {
         scope: "./",
         updateViaCache: "none"
+      }).catch((error) => {
+        serviceWorkerPromise = null;
+        throw error;
       });
+    }
+    return serviceWorkerPromise;
+  }
+
+  function updateOfflineDownloadUi(indexUrl, state) {
+    document.querySelectorAll("[data-offline-download]").forEach((button) => {
+      if (button.dataset.indexUrl !== indexUrl) return;
+      const status = button.closest(".offline-download")?.querySelector("[data-offline-status]");
+      button.disabled = state.kind === "downloading";
+      if (state.kind === "downloading") {
+        button.textContent = state.total ? `正在下載 ${state.completed}/${state.total}` : "正在準備下載…";
+        if (status) status.textContent = "下載期間可以繼續閱讀，請保持網路連線。";
+      } else if (state.kind === "complete") {
+        button.textContent = "整冊已可離線閱讀";
+        if (status) status.textContent = `已保存 ${state.total} 個經文與影印資源。`;
+      } else if (state.kind === "error") {
+        button.textContent = "重試下載整冊";
+        if (status) status.textContent = state.message || "下載未完成；已保存的部分不會重複下載。";
+      }
+    });
+  }
+
+  async function downloadBookForOffline(indexUrl) {
+    if (!("serviceWorker" in navigator) || location.protocol === "file:") {
+      throw new Error("此瀏覽器目前不支援離線下載。");
+    }
+    const registration = await ensureServiceWorker();
+    const readyRegistration = await navigator.serviceWorker.ready;
+    const worker = readyRegistration.active || registration.active;
+    if (!worker) throw new Error("離線服務尚未準備好，請稍後再試。");
+
+    updateOfflineDownloadUi(indexUrl, { kind: "downloading", completed: 0, total: 0 });
+    return new Promise((resolve, reject) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => {
+        const message = event.data || {};
+        if (message.type === "CACHE_BOOK_PROGRESS") {
+          updateOfflineDownloadUi(indexUrl, {
+            kind: "downloading",
+            completed: message.completed || 0,
+            total: message.total || 0
+          });
+        }
+        if (message.type === "CACHE_BOOK_COMPLETE") {
+          channel.port1.close();
+          updateOfflineDownloadUi(indexUrl, { kind: "complete", total: message.total || 0 });
+          resolve(message);
+        }
+        if (message.type === "CACHE_BOOK_ERROR") {
+          channel.port1.close();
+          reject(new Error(message.message || "下載未完成；請檢查網路後重試。"));
+        }
+      };
+      worker.postMessage({ type: "CACHE_BOOK", indexUrl }, [channel.port2]);
+    });
+  }
+
+  async function handleOfflineDownload(button) {
+    const indexUrl = button.dataset.indexUrl;
+    if (!indexUrl || button.disabled) return;
+    try {
+      await downloadBookForOffline(indexUrl);
+    } catch (error) {
+      updateOfflineDownloadUi(indexUrl, { kind: "error", message: error.message });
+    }
+  }
+
+  async function registerServiceWorker() {
+    try {
+      const registration = await ensureServiceWorker();
+      if (serviceWorkerUpdatesConfigured) return;
+      serviceWorkerUpdatesConfigured = true;
       let updateInFlight = false;
       const checkForUpdate = async () => {
         if (updateInFlight) return;
@@ -178,10 +263,6 @@
       window.addEventListener("online", checkForUpdate);
       window.setInterval(checkForUpdate, UPDATE_INTERVAL_MS);
       checkForUpdate();
-
-      navigator.serviceWorker.ready.then((readyRegistration) => {
-        readyRegistration.active?.postMessage({ type: "CACHE_BOOK" });
-      }).catch(() => {});
     } catch (_error) {
       // The site remains usable when service workers are unavailable.
     }
@@ -190,6 +271,10 @@
   document.querySelectorAll("[data-theme-cycle]").forEach((button) => button.addEventListener("click", cycleTheme));
   document.querySelectorAll("[data-theme-option]").forEach((button) => {
     button.addEventListener("click", () => setTheme(button.dataset.themeOption));
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-offline-download]");
+    if (button) handleOfflineDownload(button);
   });
 
   configureInstallButtons();
@@ -201,5 +286,5 @@
     window.addEventListener("load", registerServiceWorker);
   }
 
-  window.sutraApp = { setTheme, installApp, writeStorage };
+  window.sutraApp = { setTheme, installApp, writeStorage, downloadBookForOffline };
 })();

@@ -411,6 +411,18 @@ a { color: inherit; }
 
 .book-details .translator { color: var(--ink); font-family: inherit; letter-spacing: 0.06em; }
 
+.offline-download {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  font-family: system-ui, sans-serif;
+}
+
+.offline-download button { flex: 0 0 auto; color: var(--ink); }
+.offline-download button:disabled { cursor: wait; opacity: 0.68; }
+.offline-download small { color: var(--ink-soft); font-size: 0.68rem; line-height: 1.55; }
+
 .volume-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(5.4rem, 1fr));
@@ -517,17 +529,23 @@ a { color: inherit; }
 }
 
 .icon-button {
+  display: inline-flex;
+  box-sizing: border-box;
   min-width: 2.75rem;
   min-height: 2.4rem;
+  align-items: center;
+  justify-content: center;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: transparent;
+  color: var(--ink);
   font-family: system-ui, sans-serif;
   font-size: 0.75rem;
   font-weight: 680;
 }
 
+.reader-home-button { text-decoration: none; }
 .aa-button { font-family: Georgia, serif; font-size: 0.94rem; }
 
 .reader-heading {
@@ -1114,6 +1132,17 @@ a { color: inherit; }
 .theme-options [data-theme-option="eye"] i { background: #dfe6d9; }
 .theme-options [data-theme-option="night"] i { background: #17211c; }
 
+.settings-panel .offline-download {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-panel .offline-download button { width: 100%; min-height: 2.75rem; }
+
 .settings-note { margin: 0; padding: 0.85rem 1rem 1rem; color: var(--ink-soft); font-family: system-ui, sans-serif; font-size: 0.68rem; line-height: 1.55; }
 
 .reader-toast {
@@ -1172,6 +1201,7 @@ a { color: inherit; }
   .book-details { padding: 1.35rem 1rem; }
   .volume-list { grid-template-columns: repeat(2, 1fr); }
   .book-actions { align-items: flex-start; flex-direction: column; }
+  .book-details > .offline-download { align-items: flex-start; flex-direction: column; }
   .principle-grid { grid-template-columns: repeat(2, 1fr); }
   .site-footer { align-items: flex-start; flex-direction: column; }
 

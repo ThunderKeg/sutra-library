@@ -24,6 +24,7 @@
       </div>
       <div class="reader-header-actions">
         <span class="reader-progress" id="readerProgress" aria-live="polite">0%</span>
+        <a class="icon-button reader-home-button" href="./index.html" aria-label="返回藏經閣首頁">首頁</a>
         <button class="icon-button aa-button" id="settingsButton" type="button" aria-label="閱讀設定" aria-expanded="false" aria-controls="settingsPanel">Aa</button>
       </div>
     </header>
@@ -85,6 +86,10 @@
         <button type="button" data-theme-option="eye"><i></i>護眼</button>
         <button type="button" data-theme-option="night"><i></i>夜讀</button>
       </fieldset>
+      <div class="offline-download">
+        <button class="text-button" type="button" data-offline-download data-index-url="./data/huayan/volume-01-index.json">下載整冊離線閱讀</button>
+        <small data-offline-status aria-live="polite">首次只載入當前章節；點按後才下載整冊。</small>
+      </div>
       <p class="settings-note">字級、色調、拼音顯示與閱讀進度只保存在這台裝置。</p>
     </section>
 

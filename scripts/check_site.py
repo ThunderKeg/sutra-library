@@ -154,9 +154,18 @@ def main() -> int:
     require('updateViaCache: "none"' in app_script and "registration.update()" in app_script, "foreground service-worker update checks missing")
     require('"visibilitychange"' in app_script and '"focus"' in app_script and '"online"' in app_script, "update checks must run when the PWA returns online or foreground")
     require("clients.matchAll" in service_worker and "client.navigate(client.url)" in service_worker, "active PWA clients are not refreshed after an update")
-    require('postMessage({ type: "CACHE_BOOK" })' in app_script and 'event.data?.type === "CACHE_BOOK"' in service_worker, "background book cache warming missing")
-    require("bookCachePromise" in service_worker and "missingAssets" in service_worker, "background book cache warming must be deduplicated")
-    require("sutra-library-v8-20260722-auto-update" in service_worker, "service worker cache version was not bumped")
+    require("data-offline-download" in app_script and "data-offline-download" in reader_html, "manual whole-volume download controls missing")
+    require("MessageChannel" in app_script and 'worker.postMessage({ type: "CACHE_BOOK", indexUrl }' in app_script, "manual offline download messaging missing")
+    require("readyRegistration.active?.postMessage" not in app_script, "whole-volume download must not start automatically")
+    require('event.data?.type !== "CACHE_BOOK"' in service_worker and "CACHE_BOOK_PROGRESS" in service_worker, "service worker manual download progress missing")
+    require("bookCacheJobs" in service_worker and "for (const asset of bookAssets)" in service_worker, "manual download must be deduplicated and incremental")
+    require("OFFLINE_BOOK_CACHE" in service_worker, "whole-volume downloads must survive app-shell cache updates")
+    require("sutra-library-v10-20260722-manual-offline" in service_worker, "service worker cache version was not bumped")
+    require(
+        '<a class="icon-button reader-home-button" href="./index.html" aria-label="返回藏經閣首頁">首頁</a>'
+        in reader_html,
+        "reader header is missing the persistent home link",
+    )
 
     print(
         f"Site checks passed: {len(volume_index['sections'])} sections, {page_count} PDF pages, "
