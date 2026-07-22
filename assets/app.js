@@ -128,9 +128,23 @@
     try {
       const progress = JSON.parse(window.localStorage.getItem("sutra-progress") || "null");
       if (!progress || progress.book !== "huayan" || progress.volume !== "01") return;
-      const params = new URLSearchParams({ book: "huayan", volume: "01", section: progress.section });
+      const params = new URLSearchParams({
+        book: "huayan",
+        volume: "01",
+        section: progress.section,
+        resume: "1",
+      });
+      const hasSourcePage = progress.sourcePage !== null
+        && progress.sourcePage !== undefined
+        && progress.sourcePage !== "";
+      if (hasSourcePage) {
+        params.set("page", String(progress.sourcePage));
+      }
       card.href = `./reader.html?${params.toString()}`;
-      title.textContent = progress.sectionTitle || "華嚴經第一冊";
+      const pageLabel = hasSourcePage
+        ? ` · ${progress.sourcePageLabel || (/^\d+$/.test(String(progress.sourcePage)) ? `原書第 ${progress.sourcePage} 頁` : progress.sourcePage)}`
+        : "";
+      title.textContent = `${progress.sectionTitle || "華嚴經第一冊"}${pageLabel}`;
       card.hidden = false;
     } catch (_error) {
       // Ignore malformed or unavailable storage.

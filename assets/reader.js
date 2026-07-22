@@ -2,6 +2,7 @@
   "use strict";
 
   const FONT_SCALES = [80, 90, 100, 110, 120, 130, 140];
+  const PULL_THRESHOLD = 84;
   const params = new URLSearchParams(window.location.search);
   const bookId = params.get("book") || "huayan";
   const volumeId = params.get("volume") || "01";
@@ -25,9 +26,15 @@
   let volumeIndex = null;
   let activeSectionIndex = 0;
   let currentSourcePage = null;
+  let currentSourcePageLabel = null;
   let saveTimer = null;
   let toastTimer = null;
   let sectionRequest = 0;
+  let sectionLoading = false;
+  let pageObserver = null;
+  let pullStartX = null;
+  let pullStartY = null;
+  let pullDistance = 0;
 
   function readStorage(key, fallback) {
     try {
@@ -88,6 +95,56 @@
     viewport.scrollLeft = max * (1 - Math.max(0, Math.min(1, ratio || 0)));
   }
 
+  function captureReadingPosition() {
+    const metrics = scrollMetrics();
+    const page = currentSourcePage === null
+      ? null
+      : pageElementFor(currentSourcePage);
+    if (!page) {
+      return {
+        ratio: metrics.ratio,
+        sourcePage: currentSourcePage,
+        sourcePageLabel: currentSourcePageLabel,
+        pageOffsetRatio: 0
+      };
+    }
+
+    const viewportRight = viewport.scrollLeft + viewport.clientWidth;
+    const pageRight = page.offsetLeft + page.offsetWidth;
+    const maxPageOffsetRatio = Math.max(0, 1 - viewport.clientWidth / Math.max(1, page.offsetWidth));
+    const pageOffsetRatio = Math.max(0, Math.min(maxPageOffsetRatio, (pageRight - viewportRight) / Math.max(1, page.offsetWidth)));
+    return {
+      ratio: metrics.ratio,
+      sourcePage: currentSourcePage,
+      sourcePageLabel: currentSourcePageLabel,
+      pageOffsetRatio
+    };
+  }
+
+  function pageElementFor(sourcePage) {
+    if (sourcePage === null || sourcePage === undefined || sourcePage === "") return null;
+    const raw = String(sourcePage);
+    return document.getElementById(`page-${raw}`) ||
+      (/^\d+$/.test(raw) ? document.getElementById(`page-printed-${raw}`) : null);
+  }
+
+  function restoreReadingPosition(position) {
+    const page = pageElementFor(position?.sourcePage);
+    if (!page) {
+      setReadingRatio(Number(position?.ratio) || 0);
+      return;
+    }
+
+    const max = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    const pageRight = page.offsetLeft + page.offsetWidth;
+    const maxPageOffsetRatio = Math.max(0, 1 - viewport.clientWidth / Math.max(1, page.offsetWidth));
+    const pageOffsetRatio = Math.max(0, Math.min(maxPageOffsetRatio, Number(position?.pageOffsetRatio) || 0));
+    viewport.scrollLeft = Math.max(0, Math.min(max, pageRight - page.offsetWidth * pageOffsetRatio - viewport.clientWidth));
+    currentSourcePage = page.dataset.sourcePage;
+    currentSourcePageLabel = page.dataset.sourcePageLabel;
+    sourcePageLabel.textContent = currentSourcePageLabel;
+  }
+
   function getSavedProgress() {
     try {
       const saved = JSON.parse(readStorage("sutra-progress", "null"));
@@ -101,14 +158,17 @@
   function saveProgress() {
     if (!volumeIndex) return;
     const section = volumeIndex.sections[activeSectionIndex];
-    const metrics = scrollMetrics();
+    const position = captureReadingPosition();
     const payload = {
+      version: 3,
       book: bookId,
       volume: volumeId,
       section: section.id,
       sectionTitle: section.title,
-      ratio: Number(metrics.ratio.toFixed(5)),
-      sourcePage: currentSourcePage,
+      ratio: Number(position.ratio.toFixed(5)),
+      sourcePage: position.sourcePage,
+      sourcePageLabel: position.sourcePageLabel,
+      pageOffsetRatio: Number(position.pageOffsetRatio.toFixed(5)),
       updatedAt: new Date().toISOString()
     };
     writeStorage("sutra-progress", JSON.stringify(payload));
@@ -136,12 +196,12 @@
   }
 
   function setFontScale(nextScale) {
-    const currentRatio = scrollMetrics().ratio;
+    const currentPosition = captureReadingPosition();
     const scale = FONT_SCALES.includes(nextScale) ? nextScale : 100;
     document.documentElement.dataset.readerFontScale = String(scale);
     writeStorage("sutra-font-scale", String(scale));
     updateSettingsUi();
-    window.requestAnimationFrame(() => setReadingRatio(currentRatio));
+    window.requestAnimationFrame(() => restoreReadingPosition(currentPosition));
     showToast(`文字大小 ${scale}%`);
   }
 
@@ -153,11 +213,11 @@
 
   function togglePinyin() {
     const next = document.documentElement.dataset.pinyin === "off" ? "on" : "off";
-    const ratio = scrollMetrics().ratio;
+    const currentPosition = captureReadingPosition();
     document.documentElement.dataset.pinyin = next;
     writeStorage("sutra-pinyin", next);
     updateSettingsUi();
-    window.requestAnimationFrame(() => setReadingRatio(ratio));
+    window.requestAnimationFrame(() => restoreReadingPosition(currentPosition));
     showToast(next === "on" ? "已顯示拼音" : "已隱藏拼音");
   }
 
@@ -166,12 +226,12 @@
     toc.innerHTML = volumeIndex.sections.map((section, index) => `
       <button type="button" data-section="${section.id}" data-index="${index}">
         <span class="toc-number">${String(index + 1).padStart(2, "0")}</span>
-        <span><strong>${section.title}</strong><small>原書 ${section.sourcePageLabel}</small></span>
+        <span><strong>${section.title}</strong><small>${section.sourcePageLabel}</small></span>
       </button>`).join("");
     toc.addEventListener("click", (event) => {
       const button = event.target.closest("button[data-index]");
       if (!button) return;
-      loadSection(Number(button.dataset.index), 0);
+      loadSection(Number(button.dataset.index), { ratio: 0 });
       closeToc();
     });
   }
@@ -179,7 +239,7 @@
   function updateSectionUi(section) {
     currentSectionLabel.textContent = section.title;
     footerSectionTitle.textContent = section.shortTitle || section.title;
-    sourcePageLabel.textContent = `原書 ${section.sourcePageLabel}`;
+    sourcePageLabel.textContent = section.sourcePageLabel;
     document.getElementById("previousSection").disabled = activeSectionIndex === 0;
     document.getElementById("nextSection").disabled = activeSectionIndex === volumeIndex.sections.length - 1;
     document.querySelectorAll("#tocList button[data-index]").forEach((button) => {
@@ -189,24 +249,91 @@
     });
   }
 
+  function hasNextSection() {
+    return Boolean(volumeIndex && activeSectionIndex < volumeIndex.sections.length - 1);
+  }
+
+  function isAtSectionEnd() {
+    return viewport.scrollLeft <= 2;
+  }
+
+  function updatePullIndicator(distance) {
+    pullDistance = Math.max(0, distance);
+    const continuation = document.getElementById("sectionContinuation");
+    if (!continuation) return;
+    const progress = Math.min(1, pullDistance / PULL_THRESHOLD);
+    continuation.style.setProperty("--pull-progress", String(progress));
+    continuation.dataset.ready = String(progress >= 1);
+    const label = continuation.querySelector("[data-pull-label]");
+    if (label) label.textContent = progress >= 1 ? "放開進入下一節" : "再拉一下，進入下一節";
+  }
+
+  function resetPullGesture() {
+    pullStartX = null;
+    pullStartY = null;
+    updatePullIndicator(0);
+  }
+
+  function goToNextSection() {
+    if (!hasNextSection() || sectionLoading) return;
+    saveProgress();
+    showToast("正在展開下一節");
+    loadSection(activeSectionIndex + 1, { ratio: 0 });
+  }
+
+  function handleTouchStart(event) {
+    if (!hasNextSection() || !isAtSectionEnd() || event.touches.length !== 1) return;
+    pullStartX = event.touches[0].clientX;
+    pullStartY = event.touches[0].clientY;
+    updatePullIndicator(0);
+  }
+
+  function handleTouchMove(event) {
+    if (!hasNextSection() || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    if (pullStartX === null) {
+      if (!isAtSectionEnd()) return;
+      pullStartX = touch.clientX;
+      pullStartY = touch.clientY;
+      return;
+    }
+
+    const deltaX = touch.clientX - pullStartX;
+    const deltaY = touch.clientY - pullStartY;
+    updatePullIndicator(deltaX > Math.abs(deltaY) ? deltaX : 0);
+  }
+
+  function handleTouchEnd() {
+    const shouldContinue = pullDistance >= PULL_THRESHOLD;
+    resetPullGesture();
+    if (shouldContinue) goToNextSection();
+  }
+
   function observePages() {
+    pageObserver?.disconnect();
     const pages = [...sutraText.querySelectorAll(".source-page")];
-    const observer = new IntersectionObserver((entries) => {
+    pageObserver = new IntersectionObserver((entries) => {
       const visible = entries
         .filter((entry) => entry.isIntersecting)
         .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
       if (!visible) return;
-      currentSourcePage = Number(visible.target.dataset.sourcePage);
-      sourcePageLabel.textContent = `原書第 ${currentSourcePage} 頁`;
+      currentSourcePage = visible.target.dataset.sourcePage;
+      currentSourcePageLabel = visible.target.dataset.sourcePageLabel;
+      sourcePageLabel.textContent = currentSourcePageLabel;
+      scheduleSave();
     }, { root: viewport, threshold: [0.25, 0.5, 0.75] });
-    pages.forEach((page) => observer.observe(page));
+    pages.forEach((page) => pageObserver.observe(page));
   }
 
-  async function loadSection(index, ratio) {
+  async function loadSection(index, restorePosition = { ratio: 0 }) {
     if (!volumeIndex || index < 0 || index >= volumeIndex.sections.length) return;
     const requestId = ++sectionRequest;
+    sectionLoading = true;
     activeSectionIndex = index;
     const section = volumeIndex.sections[index];
+    currentSourcePage = null;
+    currentSourcePageLabel = null;
+    resetPullGesture();
     updateSectionUi(section);
     sutraText.innerHTML = '<div class="reader-loading"><span class="loading-seal" aria-hidden="true">經</span><p>正在展卷…</p></div>';
 
@@ -217,34 +344,55 @@
       if (requestId !== sectionRequest) return;
 
       const pages = data.pages.map((page) => page.facsimile
-        ? `<section class="source-page facsimile-page" id="page-${page.printedPage}" data-source-page="${page.printedPage}" aria-label="原書第 ${page.printedPage} 頁圖像">
-            <span class="page-folio" aria-hidden="true">${page.printedPage}</span>
-            <img src="./${page.facsimile}" alt="原書第 ${page.printedPage} 頁特殊字形或附錄原貌" loading="lazy" decoding="async">
+        ? `<section class="source-page facsimile-page" id="page-${page.pageKey}" data-source-page="${page.pageKey}" data-source-page-label="${page.pageLabel}" aria-label="${page.pageLabel}圖像">
+            <span class="page-folio" aria-hidden="true">${page.folioLabel}</span>
+            <img src="./${page.facsimile}" alt="${page.pageLabel}原貌" loading="lazy" decoding="async">
           </section>`
-        : `<section class="source-page" id="page-${page.printedPage}" data-source-page="${page.printedPage}" aria-label="原書第 ${page.printedPage} 頁">
-            <span class="page-folio" aria-hidden="true">${page.printedPage}</span>
+        : `<section class="source-page" id="page-${page.pageKey}" data-source-page="${page.pageKey}" data-source-page-label="${page.pageLabel}" aria-label="${page.pageLabel}">
+            <span class="page-folio" aria-hidden="true">${page.folioLabel}</span>
             <div class="page-text">${page.html}</div>
           </section>`).join("");
+
+      const nextSection = volumeIndex.sections[index + 1];
+      const continuation = nextSection
+        ? `<section class="section-continuation" id="sectionContinuation" aria-label="本節結束，下一節為${nextSection.title}" data-ready="false">
+            <span class="continuation-arrow" aria-hidden="true">←</span>
+            <div class="continuation-meter" aria-hidden="true"><span></span></div>
+            <p data-pull-label>再拉一下，進入下一節</p>
+            <h2>下一節 · ${nextSection.shortTitle || nextSection.title}</h2>
+            <button type="button" id="continueSection">直接進入下一節</button>
+            <small>到達末尾後，順勢繼續拉動</small>
+          </section>`
+        : `<section class="section-continuation is-final" id="sectionContinuation" aria-label="第一冊閱讀完畢">
+            <span class="continuation-seal" aria-hidden="true">圓</span>
+            <p>功德圓滿</p>
+            <h2>第一冊讀畢</h2>
+            <a href="./index.html">返回藏經閣</a>
+          </section>`;
 
       sutraText.innerHTML = `
         <header class="section-title-page">
           <p>大方廣佛華嚴經 · 第一冊</p>
           <h1>${section.title}</h1>
           <span>${volumeIndex.translator}</span>
-          <small>拼音為自動校注 · 原書 ${section.sourcePageLabel}</small>
-        </header>${pages}`;
+          <small>拼音依原 PDF 字形還原 · ${section.sourcePageLabel}</small>
+        </header>${pages}${continuation}`;
 
-      const nextParams = new URLSearchParams({ book: bookId, volume: volumeId, section: section.id });
+      document.getElementById("continueSection")?.addEventListener("click", goToNextSection);
+
+      const nextParams = new URLSearchParams({ book: bookId, volume: volumeId, section: section.id, resume: "1" });
       window.history.replaceState(null, "", `${window.location.pathname}?${nextParams.toString()}`);
       document.title = `${section.shortTitle || section.title} · 華嚴經第一冊`;
-      currentSourcePage = data.pages[0]?.printedPage || null;
+      sectionLoading = false;
       window.requestAnimationFrame(() => {
-        setReadingRatio(ratio || 0);
+        restoreReadingPosition(restorePosition);
         updateProgress();
         observePages();
         viewport.focus({ preventScroll: true });
       });
     } catch (_error) {
+      if (requestId !== sectionRequest) return;
+      sectionLoading = false;
       sutraText.innerHTML = `
         <div class="reader-error">
           <span class="loading-seal" aria-hidden="true">止</span>
@@ -252,7 +400,7 @@
           <p>請檢查網路，或先返回已開啟過的卷次。</p>
           <button class="primary-button" type="button" id="retrySection">重新載入</button>
         </div>`;
-      document.getElementById("retrySection")?.addEventListener("click", () => loadSection(index, ratio));
+      document.getElementById("retrySection")?.addEventListener("click", () => loadSection(index, restorePosition));
     }
   }
 
@@ -267,10 +415,20 @@
 
       const saved = getSavedProgress();
       const requestedSection = params.get("section");
+      const requestedPage = params.get("page");
+      const resumeRequested = params.get("resume") === "1";
       const sectionId = requestedSection || saved?.section || volumeIndex.sections[0].id;
       activeSectionIndex = Math.max(0, volumeIndex.sections.findIndex((section) => section.id === sectionId));
-      const restoreRatio = !requestedSection && saved?.section === sectionId ? saved.ratio : 0;
-      await loadSection(activeSectionIndex, restoreRatio);
+      const shouldRestoreSaved = saved?.section === sectionId && (!requestedSection || resumeRequested);
+      const restorePosition = shouldRestoreSaved
+        ? saved
+        : {
+            ratio: 0,
+            sourcePage: requestedPage || null,
+            sourcePageLabel: null,
+            pageOffsetRatio: 0
+          };
+      await loadSection(activeSectionIndex, restorePosition);
     } catch (_error) {
       sutraText.innerHTML = '<div class="reader-error"><span class="loading-seal" aria-hidden="true">止</span><h2>第一冊目錄暫時無法載入</h2><p>請回到藏書閣後再試一次。</p><a class="primary-button" href="./index.html">返回藏書閣</a></div>';
     }
@@ -286,11 +444,15 @@
   document.getElementById("fontIncrease").addEventListener("click", () => shiftFontScale(1));
   document.getElementById("fontReset").addEventListener("click", () => setFontScale(100));
   pinyinToggle.addEventListener("click", togglePinyin);
-  document.getElementById("previousSection").addEventListener("click", () => loadSection(activeSectionIndex - 1, 0));
-  document.getElementById("nextSection").addEventListener("click", () => loadSection(activeSectionIndex + 1, 0));
+  document.getElementById("previousSection").addEventListener("click", () => loadSection(activeSectionIndex - 1, { ratio: 0 }));
+  document.getElementById("nextSection").addEventListener("click", goToNextSection);
   document.addEventListener("sutra:theme", updateSettingsUi);
 
   viewport.addEventListener("scroll", updateProgress, { passive: true });
+  viewport.addEventListener("touchstart", handleTouchStart, { passive: true });
+  viewport.addEventListener("touchmove", handleTouchMove, { passive: true });
+  viewport.addEventListener("touchend", handleTouchEnd, { passive: true });
+  viewport.addEventListener("touchcancel", resetPullGesture, { passive: true });
   window.addEventListener("pagehide", saveProgress);
   document.addEventListener("visibilitychange", () => { if (document.hidden) saveProgress(); });
   document.addEventListener("keydown", (event) => {

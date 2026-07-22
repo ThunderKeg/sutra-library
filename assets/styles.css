@@ -646,6 +646,117 @@ a { color: inherit; }
 
 .source-page:nth-child(odd) { background: color-mix(in srgb, var(--paper-raised) 28%, var(--paper)); }
 
+.section-continuation {
+  --pull-progress: 0;
+  position: relative;
+  display: flex;
+  width: min(100vw, 32rem);
+  height: 100%;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.65rem, 2.8vw, 1.35rem);
+  padding: 2rem clamp(1rem, 5vw, 3rem);
+  border-left: 1px solid var(--line);
+  background:
+    radial-gradient(circle at center, color-mix(in srgb, var(--accent) 8%, transparent), transparent 56%),
+    var(--paper-raised);
+  scroll-snap-align: end;
+}
+
+.section-continuation h2,
+.section-continuation p,
+.section-continuation small,
+.section-continuation button,
+.section-continuation a {
+  margin: 0;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+}
+
+.section-continuation h2 {
+  color: var(--ink);
+  font-size: clamp(1.25rem, 5vw, 1.85rem);
+  letter-spacing: 0.12em;
+}
+
+.section-continuation p {
+  color: var(--accent);
+  font-size: 0.88rem;
+  letter-spacing: 0.09em;
+}
+
+.section-continuation small {
+  color: var(--ink-soft);
+  font-family: system-ui, sans-serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+}
+
+.section-continuation button,
+.section-continuation a {
+  min-height: 7rem;
+  padding: 0.72rem 0.58rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--paper) 78%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: system-ui, sans-serif;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+}
+
+.continuation-arrow {
+  color: var(--accent);
+  font-family: system-ui, sans-serif;
+  font-size: clamp(2rem, 8vw, 3.5rem);
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.continuation-meter {
+  width: 0.28rem;
+  height: min(24vh, 7rem);
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.continuation-meter span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scaleY(var(--pull-progress));
+  transform-origin: bottom;
+  transition: transform 80ms linear;
+}
+
+.section-continuation[data-ready="true"] .continuation-arrow {
+  color: var(--accent-strong);
+  transform: translateX(-0.45rem);
+}
+
+.section-continuation[data-ready="true"] button {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--paper));
+}
+
+.section-continuation.is-final { gap: clamp(1rem, 5vw, 2rem); }
+
+.continuation-seal {
+  display: grid;
+  width: 4.2rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  color: var(--accent);
+  font-size: 1.65rem;
+}
+
 .facsimile-page {
   width: min(100vw, 42rem);
   align-items: center;
@@ -706,7 +817,6 @@ a { color: inherit; }
   writing-mode: horizontal-tb;
 }
 
-.page-folio::before { content: "原書 "; color: var(--ink-soft); }
 
 .reader-loading,
 .reader-error {
@@ -1016,6 +1126,7 @@ a { color: inherit; }
   .reader-heading strong { font-size: 0.78rem; }
   .reader-progress { display: none; }
   .source-page { min-width: 100vw; padding-right: 1rem; padding-left: 1rem; }
+  .section-continuation { width: 100vw; }
   .facsimile-page { width: 100vw; }
   .page-text { line-height: 1.93; }
 }

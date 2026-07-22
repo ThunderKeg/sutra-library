@@ -1,4 +1,4 @@
-const CACHE_VERSION = "sutra-library-v1-20260722";
+const CACHE_VERSION = "sutra-library-v3-20260722-source-faithful";
 const APP_SHELL = [
   "./",
   "./index.html",
