@@ -4,8 +4,7 @@
   const FONT_SCALES = [80, 90, 100, 110, 120, 130, 140];
   const PULL_THRESHOLD = 84;
   const PULL_EDGE_TOLERANCE = 3;
-  const AUDIO_PROGRESS_KEY = "sutra-audio-progress-v1";
-  const AUDIO_AUTO_FOLLOW_KEY = "sutra-audio-auto-follow-v1";
+  const LEGACY_AUDIO_PROGRESS_KEY = "sutra-audio-progress-v1";
   const AUDIO_ALIGNMENT_URL = "./data/huayan/volume-01-audio-alignment.json";
   const FIRST_VOLUME_AUDIO = Object.freeze({
     "juan-01": { key: "huayan-juan-01", title: "第一卷", url: "https://wz.yyxcfg.com/a/a/4/1012.m4a" },
@@ -30,21 +29,13 @@
   const tocDrawer = document.getElementById("tocDrawer");
   const drawerBackdrop = document.getElementById("drawerBackdrop");
   const settingsPanel = document.getElementById("settingsPanel");
-  const audioPanel = document.getElementById("audioPanel");
   const tocButton = document.getElementById("tocButton");
   const settingsButton = document.getElementById("settingsButton");
   const audioButton = document.getElementById("audioButton");
   const readerAudio = document.getElementById("readerAudio");
-  const audioPlayButton = document.getElementById("audioPlayButton");
-  const audioTrackTitle = document.getElementById("audioTrackTitle");
-  const audioTrackReader = document.getElementById("audioTrackReader");
-  const audioStatus = document.getElementById("audioStatus");
-  const audioAutoFollowToggle = document.getElementById("audioAutoFollowToggle");
-  const audioReturnFollowButton = document.getElementById("audioReturnFollowButton");
   const audioFollowPrompt = document.getElementById("audioFollowPrompt");
-  const audioPlayHereButton = document.getElementById("audioPlayHereButton");
   const audioPromptReturnButton = document.getElementById("audioPromptReturnButton");
-  const audioPromptDismissButton = document.getElementById("audioPromptDismissButton");
+  const audioReplayHereButton = document.getElementById("audioReplayHereButton");
   const progressLabel = document.getElementById("readerProgress");
   const currentSectionLabel = document.getElementById("currentSectionLabel");
   const footerSectionTitle = document.getElementById("footerSectionTitle");
@@ -71,12 +62,12 @@
   let wheelPullDirection = null;
   let wheelPullDistance = 0;
   let wheelPullTimer = null;
-  let audioSaveTimer = null;
   let currentAudioTrack = null;
   let audioAlignment = null;
   let audioAlignmentPromise = null;
-  let audioFollowEnabled = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+  let audioFollowEnabled = true;
   let audioFollowDetached = false;
+  let audioStartRequest = 0;
   let audioFollowRequest = 0;
   let audioFollowScrollTarget = null;
   let audioFollowVirtualScroll = null;
@@ -89,8 +80,6 @@
   let manualScrollActive = false;
   let manualScrollStartedWhileFollowing = false;
   let manualScrollTimer = null;
-  let audioSeekingFromText = false;
-  let audioRestoringProgress = false;
 
   function readStorage(key, fallback) {
     try {
@@ -104,9 +93,12 @@
     if (window.sutraApp) window.sutraApp.writeStorage(key, value);
   }
 
-  function readBooleanPreference(key, fallback) {
-    const saved = readStorage(key, fallback ? "true" : "false");
-    return saved === "true";
+  function discardLegacyAudioProgress() {
+    try {
+      window.localStorage.removeItem(LEGACY_AUDIO_PROGRESS_KEY);
+    } catch (_error) {
+      // Storage can be unavailable in private or restricted browsing modes.
+    }
   }
 
   function showToast(message) {
@@ -125,7 +117,6 @@
 
   function openToc() {
     closeSettings();
-    closeAudio();
     tocDrawer.dataset.open = "true";
     tocDrawer.setAttribute("aria-hidden", "false");
     tocButton.setAttribute("aria-expanded", "true");
@@ -141,50 +132,74 @@
 
   function openSettings() {
     closeToc();
-    closeAudio();
     settingsPanel.dataset.open = "true";
     settingsPanel.setAttribute("aria-hidden", "false");
     settingsButton.setAttribute("aria-expanded", "true");
   }
 
-  function closeAudio() {
-    audioPanel.dataset.open = "false";
-    audioPanel.setAttribute("aria-hidden", "true");
-    audioButton.setAttribute("aria-expanded", "false");
-  }
-
-  function openAudio() {
-    closeToc();
-    closeSettings();
-    ensureAudioSource();
-    ensureAudioAlignment();
-    audioPanel.dataset.open = "true";
-    audioPanel.setAttribute("aria-hidden", "false");
-    audioButton.setAttribute("aria-expanded", "true");
-  }
-
   function ensureAudioSource() {
     if (!currentAudioTrack || readerAudio.getAttribute("src") === currentAudioTrack.url) return;
     readerAudio.src = currentAudioTrack.url;
+    readerAudio.load();
   }
 
-  async function toggleAudioPlayback() {
-    if (!currentAudioTrack) return;
+  function prepareAudioPlayback() {
+    if (!currentAudioTrack || !readerAudio.paused) return;
+    ensureAudioSource();
+    ensureAudioAlignment();
+  }
+
+  async function startAudioFromReadingPosition() {
+    const track = currentAudioTrack;
+    const request = ++audioStartRequest;
+    prepareAudioPlayback();
+    audioButton.disabled = true;
+    audioButton.dataset.loading = "true";
+    audioButton.textContent = "…";
+    audioButton.setAttribute("aria-label", `正在連接${track.title}音頻`);
+
+    let playbackError = null;
+    const playAttempt = readerAudio.play().catch((error) => { playbackError = error; });
+    const alignment = audioAlignment || await ensureAudioAlignment();
+    if (request !== audioStartRequest || currentAudioTrack?.key !== track.key) return;
+    if (!alignment || !seekAudioToVisibleText()) {
+      readerAudio.pause();
+      showToast("目前頁面沒有可對應的讀誦位置");
+      audioButton.disabled = false;
+      audioButton.dataset.loading = "false";
+      audioButton.textContent = "聽";
+      audioButton.setAttribute("aria-label", "從目前閱讀位置開始聽");
+      return;
+    }
+    setAudioFollowDetached(false);
+    try {
+      await playAttempt;
+      if (playbackError) throw playbackError;
+    } catch (_error) {
+      showToast("音頻暫時無法播放，請檢查網路後重試");
+    } finally {
+      audioButton.disabled = false;
+      audioButton.dataset.loading = "false";
+      if (readerAudio.paused) {
+        audioButton.textContent = "聽";
+        audioButton.setAttribute("aria-label", "從目前閱讀位置開始聽");
+      } else {
+        audioButton.textContent = "停";
+        audioButton.setAttribute("aria-label", `暫停${track.title}`);
+      }
+    }
+  }
+
+  function toggleAudioPlayback() {
+    if (!currentAudioTrack) {
+      showToast("本節沒有對應的讀誦音頻");
+      return;
+    }
     if (!readerAudio.paused) {
       readerAudio.pause();
       return;
     }
-    ensureAudioSource();
-    ensureAudioAlignment();
-    audioPlayButton.disabled = true;
-    audioStatus.textContent = `正在連接 ${currentAudioTrack.title}…`;
-    try {
-      await readerAudio.play();
-    } catch (_error) {
-      audioStatus.textContent = "音頻暫時無法播放，請檢查網路後重試。";
-    } finally {
-      audioPlayButton.disabled = false;
-    }
+    startAudioFromReadingPosition();
   }
 
   function getAudioTrack(section) {
@@ -213,17 +228,10 @@
       })
       .catch(() => {
         audioAlignmentPromise = null;
-        if (currentAudioTrack) audioStatus.textContent = "文字聯動暫時無法載入，音頻仍可播放。";
+        if (currentAudioTrack) showToast("文字與音頻對應暫時無法載入");
         return null;
       });
     return audioAlignmentPromise;
-  }
-
-  function updateAudioFollowControls() {
-    const autoFollow = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
-    audioAutoFollowToggle.setAttribute("aria-checked", String(autoFollow));
-    audioReturnFollowButton.hidden = !autoFollow || !audioFollowDetached || !currentAudioTrack;
-    if (!autoFollow || !currentAudioTrack) audioFollowPrompt.hidden = true;
   }
 
   function hideAudioFollowPrompt() {
@@ -231,11 +239,9 @@
   }
 
   function setAudioFollowDetached(detached, { showPrompt = false } = {}) {
-    const autoFollow = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
-    audioFollowDetached = Boolean(detached && autoFollow && currentAudioTrack);
-    audioFollowEnabled = autoFollow && !audioFollowDetached;
-    audioFollowPrompt.hidden = !(audioFollowDetached && showPrompt);
-    updateAudioFollowControls();
+    audioFollowDetached = Boolean(detached && currentAudioTrack && !readerAudio.paused);
+    audioFollowEnabled = !audioFollowDetached;
+    audioFollowPrompt.hidden = !(audioFollowDetached && showPrompt && !readerAudio.paused);
   }
 
   function alignmentPageAtTime(currentTime) {
@@ -320,6 +326,8 @@
   function scrollPageToAudio(page, currentTime) {
     const element = pageElementFor(page.pageKey);
     if (!element) return;
+    currentSourcePage = element.dataset.sourcePage;
+    currentSourcePageLabel = element.dataset.sourcePageLabel;
     const duration = Math.max(0.001, page.end - page.start);
     const progress = Math.max(0, Math.min(1, (currentTime - page.start) / duration));
     const activeColumn = element.offsetLeft + element.offsetWidth * (1 - progress);
@@ -327,7 +335,7 @@
   }
 
   async function syncTextToAudio() {
-    if (!audioFollowEnabled || audioFollowDetached || manualScrollIntent || manualScrollActive || !currentAudioTrack) return;
+    if (audioButton.dataset.loading === "true" || !audioFollowEnabled || audioFollowDetached || manualScrollIntent || manualScrollActive || !currentAudioTrack) return;
     if (!audioAlignment && !await ensureAudioAlignment()) return;
     const page = alignmentPageAtTime(readerAudio.currentTime);
     if (!page) return;
@@ -346,7 +354,7 @@
   function runAudioPlaybackFollowing() {
     audioPlaybackFollowFrame = null;
     if (readerAudio.paused || readerAudio.ended) return;
-    if (audioFollowEnabled && !audioFollowDetached && !manualScrollIntent && !manualScrollActive && audioAlignment) {
+    if (audioButton.dataset.loading !== "true" && audioFollowEnabled && !audioFollowDetached && !manualScrollIntent && !manualScrollActive && audioAlignment) {
       const page = alignmentPageAtTime(readerAudio.currentTime);
       const currentSection = volumeIndex?.sections[activeSectionIndex];
       if (page && currentSection?.id === page.sectionId) scrollPageToAudio(page, readerAudio.currentTime);
@@ -385,11 +393,32 @@
   function seekAudioToVisibleText() {
     if (!audioAlignment || !readerAudio.getAttribute("src") || !currentAudioTrack) return false;
     const position = visiblePagePosition();
-    const page = position ? audioAlignment.pagesByKey.get(position.pageKey) : null;
-    if (!page || !page.spoken || page.end <= page.start) return false;
-    const nextTime = page.start + (page.end - page.start) * position.progress;
-    audioSeekingFromText = true;
-    readerAudio.currentTime = Math.max(0, Math.min(readerAudio.duration || nextTime, nextTime));
+    let page = position ? audioAlignment.pagesByKey.get(position.pageKey) : null;
+    let pageProgress = position?.progress || 0;
+    if (!page || !page.spoken || page.end <= page.start) {
+      const trackNumber = currentAudioTrack.url.match(/\/(\d+)\.m4a$/)?.[1];
+      const trackPages = audioAlignment.pagesByTrack.get(trackNumber) || [];
+      const currentSectionId = volumeIndex?.sections[activeSectionIndex]?.id;
+      const sectionPages = trackPages.filter((candidate) => candidate.sectionId === currentSectionId);
+      const fallbackPages = sectionPages.length ? sectionPages : trackPages;
+      const pageIndex = trackPages.findIndex((candidate) => candidate.pageKey === position?.pageKey);
+      const useTrackEnd = pageIndex < 0 && viewport.scrollLeft <= PULL_EDGE_TOLERANCE;
+      const nextSpokenPage = pageIndex < 0
+        ? (useTrackEnd ? null : fallbackPages.find((candidate) => candidate.spoken && candidate.end > candidate.start))
+        : trackPages.slice(pageIndex + 1).find((candidate) => candidate.spoken && candidate.end > candidate.start);
+      const previousSpokenPage = pageIndex < 0
+        ? (useTrackEnd ? [...fallbackPages].reverse().find((candidate) => candidate.spoken && candidate.end > candidate.start) : null)
+        : trackPages.slice(0, pageIndex).reverse().find((candidate) => candidate.spoken && candidate.end > candidate.start);
+      page = nextSpokenPage || previousSpokenPage;
+      pageProgress = nextSpokenPage ? 0 : 1;
+    }
+    if (!page) return false;
+    const nextTime = page.start + (page.end - page.start) * pageProgress;
+    try {
+      readerAudio.currentTime = Math.max(0, Math.min(readerAudio.duration || nextTime, nextTime));
+    } catch (_error) {
+      return false;
+    }
     return true;
   }
 
@@ -404,7 +433,7 @@
     updateProgress();
     if (audioProgrammaticScroll || (!manualScrollIntent && !manualScrollActive)) return;
     if (!manualScrollActive) {
-      manualScrollStartedWhileFollowing = audioFollowEnabled && Boolean(readerAudio.getAttribute("src"));
+      manualScrollStartedWhileFollowing = audioFollowEnabled && !readerAudio.paused && Boolean(readerAudio.getAttribute("src"));
     }
     manualScrollActive = true;
     if (manualScrollStartedWhileFollowing) setAudioFollowDetached(true);
@@ -416,7 +445,7 @@
     if (!manualScrollActive) return;
     manualScrollActive = false;
     manualScrollIntent = false;
-    if (manualScrollStartedWhileFollowing) setAudioFollowDetached(true, { showPrompt: true });
+    if (manualScrollStartedWhileFollowing && !readerAudio.paused) setAudioFollowDetached(true, { showPrompt: true });
     manualScrollStartedWhileFollowing = false;
   }
 
@@ -427,116 +456,59 @@
     if (!readerAudio.paused) startAudioPlaybackFollowing();
   }
 
-  async function playFromVisibleText() {
-    ensureAudioSource();
+  async function replayFromVisibleText() {
     if (!await ensureAudioAlignment() || !seekAudioToVisibleText()) {
-      showToast("這一頁沒有可對應的讀誦位置");
+      showToast("目前頁面沒有可對應的讀誦位置");
       return;
     }
     hideAudioFollowPrompt();
     setAudioFollowDetached(false);
-    try {
-      await readerAudio.play();
-    } catch (_error) {
-      audioStatus.textContent = "音頻暫時無法播放，請檢查網路後重試。";
-    }
-  }
-
-  function toggleAudioAutoFollow() {
-    const next = !readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
-    writeStorage(AUDIO_AUTO_FOLLOW_KEY, String(next));
-    if (next) {
-      returnToAudioPosition();
-      return;
-    }
-    cancelAudioFollowScroll();
-    stopAudioPlaybackFollowing();
-    audioFollowDetached = false;
-    audioFollowEnabled = false;
-    hideAudioFollowPrompt();
-    updateAudioFollowControls();
-  }
-
-  function readAudioProgress() {
-    try {
-      const saved = JSON.parse(readStorage(AUDIO_PROGRESS_KEY, "{}"));
-      return saved && typeof saved === "object" ? saved : {};
-    } catch (_error) {
-      return {};
-    }
-  }
-
-  function saveAudioProgress() {
-    window.clearTimeout(audioSaveTimer);
-    if (!currentAudioTrack || !Number.isFinite(readerAudio.currentTime)) return;
-    const saved = readAudioProgress();
-    saved[currentAudioTrack.key] = {
-      currentTime: Number(readerAudio.currentTime.toFixed(2)),
-      duration: Number.isFinite(readerAudio.duration) ? Number(readerAudio.duration.toFixed(2)) : null,
-      updatedAt: new Date().toISOString()
-    };
-    writeStorage(AUDIO_PROGRESS_KEY, JSON.stringify(saved));
-  }
-
-  function scheduleAudioSave() {
-    window.clearTimeout(audioSaveTimer);
-    audioSaveTimer = window.setTimeout(saveAudioProgress, 900);
-  }
-
-  function restoreAudioProgress() {
-    if (!currentAudioTrack || readerAudio.dataset.trackKey !== currentAudioTrack.key) return;
-    const savedTime = Number(readAudioProgress()[currentAudioTrack.key]?.currentTime);
-    if (!Number.isFinite(savedTime) || savedTime <= 0 || !Number.isFinite(readerAudio.duration)) return;
-    audioRestoringProgress = true;
-    readerAudio.currentTime = savedTime < readerAudio.duration - 3 ? savedTime : 0;
+    syncTextToAudio();
+    startAudioPlaybackFollowing();
   }
 
   function updateAudioForSection(section) {
     const nextTrack = getAudioTrack(section);
     if (!nextTrack) {
-      saveAudioProgress();
+      audioStartRequest += 1;
       cancelAudioFollowScroll();
       audioFollowDetached = false;
-      audioFollowEnabled = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+      audioFollowEnabled = true;
       hideAudioFollowPrompt();
       currentAudioTrack = null;
       readerAudio.pause();
       readerAudio.removeAttribute("src");
-      readerAudio.removeAttribute("data-track-key");
       readerAudio.load();
-      readerAudio.hidden = true;
-      audioPlayButton.hidden = true;
-      audioTrackTitle.textContent = "本節暫無配套音頻";
-      audioTrackReader.textContent = section.id === "kaijing-ji"
-        ? "此版本未另錄開經偈"
-        : "前置資料沒有對應讀誦音軌";
-      audioStatus.textContent = "請進入第一卷至第十卷正文後播放。";
-      audioButton.setAttribute("aria-label", "打開誦經音頻：本節暫無配套音頻");
+      audioButton.textContent = "聽";
+      audioButton.disabled = false;
+      audioButton.dataset.loading = "false";
+      audioButton.dataset.unavailable = "true";
+      audioButton.setAttribute("aria-label", "本節沒有對應的讀誦音頻");
       audioButton.dataset.playing = "false";
-      updateAudioFollowControls();
       return;
     }
 
-    audioTrackTitle.textContent = `《大方廣佛華嚴經》${nextTrack.title}`;
-    audioPlayButton.hidden = false;
-    audioTrackReader.textContent = "慧平法師讀誦";
-    audioButton.setAttribute("aria-label", `打開誦經音頻：${nextTrack.title}`);
-
-    if (currentAudioTrack?.key === nextTrack.key) return;
+    audioButton.dataset.unavailable = "false";
+    if (currentAudioTrack?.key === nextTrack.key) {
+      audioButton.setAttribute("aria-label", readerAudio.paused
+        ? `從目前閱讀位置開始聽${nextTrack.title}`
+        : `暫停${nextTrack.title}`);
+      return;
+    }
+    audioStartRequest += 1;
     cancelAudioFollowScroll();
     audioFollowDetached = false;
-    audioFollowEnabled = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+    audioFollowEnabled = true;
     hideAudioFollowPrompt();
-    audioPlayButton.textContent = "開始播放";
-    audioStatus.textContent = "可從上次位置續播。";
-    saveAudioProgress();
     readerAudio.pause();
     readerAudio.removeAttribute("src");
     readerAudio.load();
     currentAudioTrack = nextTrack;
-    readerAudio.hidden = false;
-    readerAudio.dataset.trackKey = nextTrack.key;
-    updateAudioFollowControls();
+    audioButton.textContent = "聽";
+    audioButton.disabled = false;
+    audioButton.dataset.loading = "false";
+    audioButton.dataset.playing = "false";
+    audioButton.setAttribute("aria-label", `從目前閱讀位置開始聽${nextTrack.title}`);
   }
 
   function scrollMetrics() {
@@ -980,8 +952,8 @@
   }
 
   async function initialize() {
+    discardLegacyAudioProgress();
     updateSettingsUi();
-    updateAudioFollowControls();
     try {
       const response = await fetch(indexUrl);
       if (!response.ok) throw new Error(`index ${response.status}`);
@@ -1015,14 +987,10 @@
   document.getElementById("closeToc").addEventListener("click", closeToc);
   drawerBackdrop.addEventListener("click", closeToc);
   settingsButton.addEventListener("click", () => settingsPanel.dataset.open === "true" ? closeSettings() : openSettings());
-  audioButton.addEventListener("click", () => audioPanel.dataset.open === "true" ? closeAudio() : openAudio());
-  audioPlayButton.addEventListener("click", toggleAudioPlayback);
-  audioAutoFollowToggle.addEventListener("click", toggleAudioAutoFollow);
-  audioReturnFollowButton.addEventListener("click", returnToAudioPosition);
-  audioPlayHereButton.addEventListener("click", playFromVisibleText);
+  audioButton.addEventListener("pointerdown", prepareAudioPlayback, { passive: true });
+  audioButton.addEventListener("click", toggleAudioPlayback);
   audioPromptReturnButton.addEventListener("click", returnToAudioPosition);
-  audioPromptDismissButton.addEventListener("click", hideAudioFollowPrompt);
-  document.getElementById("closeAudio").addEventListener("click", closeAudio);
+  audioReplayHereButton.addEventListener("click", replayFromVisibleText);
   document.getElementById("closeSettings").addEventListener("click", closeSettings);
   document.getElementById("fontDecrease").addEventListener("click", () => shiftFontScale(-1));
   document.getElementById("fontIncrease").addEventListener("click", () => shiftFontScale(1));
@@ -1032,43 +1000,44 @@
   document.getElementById("nextSection").addEventListener("click", goToNextSection);
   document.addEventListener("sutra:theme", updateSettingsUi);
 
-  readerAudio.addEventListener("loadedmetadata", restoreAudioProgress);
   readerAudio.addEventListener("timeupdate", () => {
-    scheduleAudioSave();
     if (!readerAudio.paused) syncTextToAudio();
   });
-  readerAudio.addEventListener("seeking", () => {
-    if (!audioSeekingFromText && !audioRestoringProgress && !manualScrollActive && readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true)) {
-      returnToAudioPosition();
-    }
-  });
   readerAudio.addEventListener("seeked", () => {
-    audioSeekingFromText = false;
-    audioRestoringProgress = false;
     if (audioFollowEnabled) syncTextToAudio();
   });
   readerAudio.addEventListener("play", () => {
     audioButton.dataset.playing = "true";
-    audioPlayButton.textContent = "暫停播放";
-    audioStatus.textContent = `正在播放 ${currentAudioTrack?.title || "誦經音頻"}`;
+    if (audioButton.dataset.loading !== "true") {
+      audioButton.textContent = "停";
+      audioButton.setAttribute("aria-label", `暫停${currentAudioTrack?.title || "誦經音頻"}`);
+    }
     startAudioPlaybackFollowing();
   });
   readerAudio.addEventListener("pause", () => {
     stopAudioPlaybackFollowing();
+    cancelAudioFollowScroll();
+    audioFollowDetached = false;
+    audioFollowEnabled = true;
+    hideAudioFollowPrompt();
     audioButton.dataset.playing = "false";
-    audioPlayButton.textContent = readerAudio.ended ? "重新播放" : "繼續播放";
-    saveAudioProgress();
-    if (currentAudioTrack && !readerAudio.ended) audioStatus.textContent = "已暫停，進度已保存。";
+    audioButton.textContent = "聽";
+    audioButton.setAttribute("aria-label", currentAudioTrack
+      ? `從目前閱讀位置開始聽${currentAudioTrack.title}`
+      : "本節沒有對應的讀誦音頻");
+    saveProgress();
   });
   readerAudio.addEventListener("ended", () => {
     stopAudioPlaybackFollowing();
+    hideAudioFollowPrompt();
     audioButton.dataset.playing = "false";
-    audioPlayButton.textContent = "重新播放";
-    saveAudioProgress();
-    audioStatus.textContent = `${currentAudioTrack?.title || "本卷"}播放完畢。`;
+    audioButton.textContent = "聽";
+    audioButton.setAttribute("aria-label", `從目前閱讀位置開始聽${currentAudioTrack?.title || "本卷"}`);
+    saveProgress();
+    showToast(`${currentAudioTrack?.title || "本卷"}播放完畢`);
   });
   readerAudio.addEventListener("error", () => {
-    if (currentAudioTrack) audioStatus.textContent = "音頻暫時無法載入，請檢查網路後重試。";
+    if (currentAudioTrack) showToast("音頻暫時無法載入，請檢查網路後重試");
   });
 
   viewport.addEventListener("scroll", handleViewportScroll, { passive: true });
@@ -1078,10 +1047,10 @@
   viewport.addEventListener("touchend", handleTouchEnd, { passive: true });
   viewport.addEventListener("touchcancel", resetPullGesture, { passive: true });
   viewport.addEventListener("wheel", handleWheel, { passive: false });
-  window.addEventListener("pagehide", () => { saveProgress(); saveAudioProgress(); });
-  document.addEventListener("visibilitychange", () => { if (document.hidden) { saveProgress(); saveAudioProgress(); } });
+  window.addEventListener("pagehide", saveProgress);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) saveProgress(); });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") { closeToc(); closeSettings(); closeAudio(); }
+    if (event.key === "Escape") { closeToc(); closeSettings(); }
     if (event.target.closest("button, a, input, audio")) return;
     if (event.key === "ArrowLeft" || event.key === "PageDown") {
       markManualScrollIntent();

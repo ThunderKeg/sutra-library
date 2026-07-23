@@ -24,7 +24,7 @@
       </div>
       <div class="reader-header-actions">
         <span class="reader-progress" id="readerProgress" aria-live="polite">0%</span>
-        <button class="icon-button audio-button" id="audioButton" type="button" aria-label="打開誦經音頻" aria-expanded="false" aria-controls="audioPanel">聽</button>
+        <button class="icon-button audio-button" id="audioButton" type="button" aria-label="從目前閱讀位置開始聽">聽</button>
         <button class="icon-button aa-button" id="settingsButton" type="button" aria-label="閱讀設定" aria-expanded="false" aria-controls="settingsPanel">Aa</button>
       </div>
     </header>
@@ -62,32 +62,6 @@
         <button class="text-button install-button" type="button" data-install hidden>安裝到手機</button>
       </div>
     </aside>
-
-    <section class="audio-panel" id="audioPanel" data-open="false" aria-hidden="true" aria-labelledby="audioPanelTitle">
-      <div class="audio-header">
-        <h2 id="audioPanelTitle">誦經音頻</h2>
-        <button class="dialog-close" id="closeAudio" type="button" aria-label="關閉誦經音頻">×</button>
-      </div>
-      <div class="audio-player-body">
-        <div class="audio-track-copy">
-          <strong id="audioTrackTitle">正在配對本節音頻…</strong>
-          <span id="audioTrackReader">慧平法師讀誦</span>
-        </div>
-        <button class="primary-button audio-play-button" id="audioPlayButton" type="button">開始播放</button>
-        <audio id="readerAudio" controls preload="none" crossorigin="anonymous"></audio>
-        <div class="audio-follow-settings" aria-label="音頻與經文聯動設定">
-          <div class="setting-row audio-follow-primary">
-            <label for="audioAutoFollowToggle">
-              <strong>經文跟隨播放</strong>
-              <small>手動翻頁時會暫停跟隨</small>
-            </label>
-            <button class="switch" id="audioAutoFollowToggle" type="button" role="switch" aria-checked="true"><span></span></button>
-          </div>
-        </div>
-        <button class="text-button audio-resume-follow" id="audioReturnFollowButton" type="button" hidden>回到播放位置</button>
-        <p class="audio-status" id="audioStatus" role="status" aria-live="polite">可從上次位置續播。</p>
-      </div>
-    </section>
 
     <section class="settings-panel" id="settingsPanel" aria-hidden="true" aria-labelledby="settingsTitle">
       <div class="settings-header">
@@ -129,12 +103,13 @@
       </form>
     </dialog>
 
+    <audio id="readerAudio" preload="none" hidden></audio>
+
     <div class="audio-follow-prompt" id="audioFollowPrompt" aria-live="polite" hidden>
-      <span>已暫停跟隨</span>
+      <span>音頻繼續播放中</span>
       <div class="audio-follow-actions">
-        <button class="primary-button" id="audioPlayHereButton" type="button">從這裡播放</button>
-        <button class="text-button" id="audioPromptReturnButton" type="button">回到播放處</button>
-        <button class="audio-follow-dismiss" id="audioPromptDismissButton" type="button">繼續閱讀</button>
+        <button class="primary-button" id="audioPromptReturnButton" type="button">回到播放處</button>
+        <button class="text-button" id="audioReplayHereButton" type="button">從這裡重聽</button>
       </div>
     </div>
 
