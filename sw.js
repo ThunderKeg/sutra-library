@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "sutra-library-v";
-const CACHE_VERSION = "sutra-library-v17-20260723-audio-follow";
+const CACHE_VERSION = "sutra-library-v18-20260723-audio-follow-ux";
 const OFFLINE_BOOK_CACHE = "sutra-library-offline-books-v1";
 const BOOK_INDEX_URL = "./data/huayan/volume-01-index.json";
 const LEGACY_AUTO_UPDATE_CACHES = new Set([

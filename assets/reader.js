@@ -5,8 +5,7 @@
   const PULL_THRESHOLD = 84;
   const PULL_EDGE_TOLERANCE = 3;
   const AUDIO_PROGRESS_KEY = "sutra-audio-progress-v1";
-  const AUDIO_SEEK_ON_SCROLL_KEY = "sutra-audio-seek-on-scroll-v1";
-  const AUDIO_RESUME_FOLLOW_KEY = "sutra-audio-resume-follow-v1";
+  const AUDIO_AUTO_FOLLOW_KEY = "sutra-audio-auto-follow-v1";
   const AUDIO_ALIGNMENT_URL = "./data/huayan/volume-01-audio-alignment.json";
   const FIRST_VOLUME_AUDIO = Object.freeze({
     "juan-01": { key: "huayan-juan-01", title: "第一卷", url: "https://wz.yyxcfg.com/a/a/4/1012.m4a" },
@@ -40,9 +39,12 @@
   const audioTrackTitle = document.getElementById("audioTrackTitle");
   const audioTrackReader = document.getElementById("audioTrackReader");
   const audioStatus = document.getElementById("audioStatus");
-  const audioSeekOnScrollToggle = document.getElementById("audioSeekOnScrollToggle");
-  const audioResumeFollowToggle = document.getElementById("audioResumeFollowToggle");
-  const audioResumeFollowButton = document.getElementById("audioResumeFollowButton");
+  const audioAutoFollowToggle = document.getElementById("audioAutoFollowToggle");
+  const audioReturnFollowButton = document.getElementById("audioReturnFollowButton");
+  const audioFollowPrompt = document.getElementById("audioFollowPrompt");
+  const audioPlayHereButton = document.getElementById("audioPlayHereButton");
+  const audioPromptReturnButton = document.getElementById("audioPromptReturnButton");
+  const audioPromptDismissButton = document.getElementById("audioPromptDismissButton");
   const progressLabel = document.getElementById("readerProgress");
   const currentSectionLabel = document.getElementById("currentSectionLabel");
   const footerSectionTitle = document.getElementById("footerSectionTitle");
@@ -73,13 +75,19 @@
   let currentAudioTrack = null;
   let audioAlignment = null;
   let audioAlignmentPromise = null;
-  let audioFollowEnabled = true;
+  let audioFollowEnabled = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+  let audioFollowDetached = false;
   let audioFollowRequest = 0;
+  let audioFollowScrollTarget = null;
+  let audioFollowVirtualScroll = null;
+  let audioFollowAnimationFrame = null;
+  let audioPlaybackFollowFrame = null;
   let audioProgrammaticScroll = false;
   let audioProgrammaticScrollTimer = null;
   let manualScrollIntent = false;
   let manualScrollIntentTimer = null;
   let manualScrollActive = false;
+  let manualScrollStartedWhileFollowing = false;
   let manualScrollTimer = null;
   let audioSeekingFromText = false;
   let audioRestoringProgress = false;
@@ -212,21 +220,22 @@
   }
 
   function updateAudioFollowControls() {
-    audioSeekOnScrollToggle.setAttribute(
-      "aria-checked",
-      String(readBooleanPreference(AUDIO_SEEK_ON_SCROLL_KEY, false))
-    );
-    audioResumeFollowToggle.setAttribute(
-      "aria-checked",
-      String(readBooleanPreference(AUDIO_RESUME_FOLLOW_KEY, true))
-    );
-    audioResumeFollowButton.hidden = audioFollowEnabled || !currentAudioTrack;
+    const autoFollow = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+    audioAutoFollowToggle.setAttribute("aria-checked", String(autoFollow));
+    audioReturnFollowButton.hidden = !autoFollow || !audioFollowDetached || !currentAudioTrack;
+    if (!autoFollow || !currentAudioTrack) audioFollowPrompt.hidden = true;
   }
 
-  function toggleAudioPreference(toggle, storageKey, fallback) {
-    const next = !readBooleanPreference(storageKey, fallback);
-    writeStorage(storageKey, String(next));
-    toggle.setAttribute("aria-checked", String(next));
+  function hideAudioFollowPrompt() {
+    audioFollowPrompt.hidden = true;
+  }
+
+  function setAudioFollowDetached(detached, { showPrompt = false } = {}) {
+    const autoFollow = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+    audioFollowDetached = Boolean(detached && autoFollow && currentAudioTrack);
+    audioFollowEnabled = autoFollow && !audioFollowDetached;
+    audioFollowPrompt.hidden = !(audioFollowDetached && showPrompt);
+    updateAudioFollowControls();
   }
 
   function alignmentPageAtTime(currentTime) {
@@ -243,10 +252,69 @@
     return activePage;
   }
 
-  function markAudioProgrammaticScroll() {
+  function finishAudioProgrammaticScroll() {
+    window.clearTimeout(audioProgrammaticScrollTimer);
+    audioProgrammaticScrollTimer = window.setTimeout(() => { audioProgrammaticScroll = false; }, 220);
+  }
+
+  function cancelAudioFollowScroll() {
+    if (audioFollowAnimationFrame !== null) window.cancelAnimationFrame(audioFollowAnimationFrame);
+    audioFollowAnimationFrame = null;
+    audioFollowScrollTarget = null;
+    audioFollowVirtualScroll = null;
+    window.clearTimeout(audioProgrammaticScrollTimer);
+    audioProgrammaticScroll = false;
+  }
+
+  function animateAudioFollowScroll() {
+    if (audioFollowScrollTarget === null || !audioFollowEnabled || manualScrollIntent || manualScrollActive) {
+      audioFollowAnimationFrame = null;
+      finishAudioProgrammaticScroll();
+      return;
+    }
+    if (audioFollowVirtualScroll === null) audioFollowVirtualScroll = viewport.scrollLeft;
+    const delta = audioFollowScrollTarget - audioFollowVirtualScroll;
+    if (Math.abs(delta) < 0.15) {
+      audioFollowVirtualScroll = audioFollowScrollTarget;
+      viewport.scrollLeft = audioFollowVirtualScroll;
+      if (!readerAudio.paused && audioFollowEnabled && !manualScrollIntent && !manualScrollActive) {
+        audioFollowAnimationFrame = window.requestAnimationFrame(animateAudioFollowScroll);
+        return;
+      }
+      audioFollowScrollTarget = null;
+      audioFollowVirtualScroll = null;
+      audioFollowAnimationFrame = null;
+      finishAudioProgrammaticScroll();
+      return;
+    }
+    const maxStep = Math.max(18, Math.min(48, viewport.clientWidth * 0.08));
+    const step = Math.sign(delta) * Math.min(maxStep, Math.abs(delta) * 0.18);
+    audioFollowVirtualScroll += step;
+    viewport.scrollLeft = audioFollowVirtualScroll;
+    audioFollowAnimationFrame = window.requestAnimationFrame(animateAudioFollowScroll);
+  }
+
+  function setAudioFollowScrollTarget(target) {
+    const max = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    const nextTarget = Math.max(0, Math.min(max, target));
+    audioFollowScrollTarget = nextTarget;
     audioProgrammaticScroll = true;
     window.clearTimeout(audioProgrammaticScrollTimer);
-    audioProgrammaticScrollTimer = window.setTimeout(() => { audioProgrammaticScroll = false; }, 180);
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      viewport.scrollLeft = nextTarget;
+      audioFollowScrollTarget = null;
+      audioFollowVirtualScroll = null;
+      finishAudioProgrammaticScroll();
+      return;
+    }
+    if (audioFollowAnimationFrame === null && Math.abs(nextTarget - viewport.scrollLeft) >= 0.2) {
+      audioFollowVirtualScroll = viewport.scrollLeft;
+      audioFollowAnimationFrame = window.requestAnimationFrame(animateAudioFollowScroll);
+    } else if (audioFollowAnimationFrame === null) {
+      audioFollowScrollTarget = null;
+      audioFollowVirtualScroll = null;
+      finishAudioProgrammaticScroll();
+    }
   }
 
   function scrollPageToAudio(page, currentTime) {
@@ -254,17 +322,12 @@
     if (!element) return;
     const duration = Math.max(0.001, page.end - page.start);
     const progress = Math.max(0, Math.min(1, (currentTime - page.start) / duration));
-    const maxPageOffsetRatio = Math.max(0, 1 - viewport.clientWidth / Math.max(1, element.offsetWidth));
-    markAudioProgrammaticScroll();
-    restoreReadingPosition({
-      sourcePage: page.pageKey,
-      sourcePageLabel: element.dataset.sourcePageLabel,
-      pageOffsetRatio: maxPageOffsetRatio * progress
-    });
+    const activeColumn = element.offsetLeft + element.offsetWidth * (1 - progress);
+    setAudioFollowScrollTarget(activeColumn - viewport.clientWidth * 0.72);
   }
 
   async function syncTextToAudio() {
-    if (!audioFollowEnabled || manualScrollActive || audioProgrammaticScroll || !currentAudioTrack) return;
+    if (!audioFollowEnabled || audioFollowDetached || manualScrollIntent || manualScrollActive || !currentAudioTrack) return;
     if (!audioAlignment && !await ensureAudioAlignment()) return;
     const page = alignmentPageAtTime(readerAudio.currentTime);
     if (!page) return;
@@ -273,41 +336,65 @@
       const targetIndex = volumeIndex.sections.findIndex((section) => section.id === page.sectionId);
       if (targetIndex < 0 || sectionLoading) return;
       const request = ++audioFollowRequest;
-      await loadSection(targetIndex, { sourcePage: page.pageKey, pageOffsetRatio: 0 });
+      cancelAudioFollowScroll();
+      await loadSection(targetIndex, { sourcePage: page.pageKey, pageOffsetRatio: 0, audioFollow: true });
       if (request !== audioFollowRequest) return;
     }
     scrollPageToAudio(page, readerAudio.currentTime);
   }
 
+  function runAudioPlaybackFollowing() {
+    audioPlaybackFollowFrame = null;
+    if (readerAudio.paused || readerAudio.ended) return;
+    if (audioFollowEnabled && !audioFollowDetached && !manualScrollIntent && !manualScrollActive && audioAlignment) {
+      const page = alignmentPageAtTime(readerAudio.currentTime);
+      const currentSection = volumeIndex?.sections[activeSectionIndex];
+      if (page && currentSection?.id === page.sectionId) scrollPageToAudio(page, readerAudio.currentTime);
+      else if (page && !sectionLoading) syncTextToAudio();
+    }
+    audioPlaybackFollowFrame = window.requestAnimationFrame(runAudioPlaybackFollowing);
+  }
+
+  function startAudioPlaybackFollowing() {
+    if (audioPlaybackFollowFrame === null) {
+      audioPlaybackFollowFrame = window.requestAnimationFrame(runAudioPlaybackFollowing);
+    }
+  }
+
+  function stopAudioPlaybackFollowing() {
+    if (audioPlaybackFollowFrame !== null) window.cancelAnimationFrame(audioPlaybackFollowFrame);
+    audioPlaybackFollowFrame = null;
+  }
+
   function visiblePagePosition() {
     const viewportRect = viewport.getBoundingClientRect();
+    const readingAnchor = viewportRect.left + viewportRect.width * 0.72;
     const candidates = [...sutraText.querySelectorAll(".source-page")].map((element) => {
       const rect = element.getBoundingClientRect();
       const visibleWidth = Math.max(0, Math.min(rect.right, viewportRect.right) - Math.max(rect.left, viewportRect.left));
       return { element, rect, visibleWidth };
     }).filter((item) => item.visibleWidth > 0).sort((a, b) => b.visibleWidth - a.visibleWidth);
-    const visible = candidates[0];
+    const visible = candidates.find((item) => item.rect.left <= readingAnchor && item.rect.right >= readingAnchor) || candidates[0];
     if (!visible) return null;
-    const maxOffset = Math.max(0, visible.rect.width - viewportRect.width);
-    const offset = Math.max(0, Math.min(maxOffset, visible.rect.right - viewportRect.right));
     return {
       pageKey: visible.element.dataset.sourcePage,
-      progress: maxOffset ? offset / maxOffset : 0
+      progress: Math.max(0, Math.min(1, (visible.rect.right - readingAnchor) / Math.max(1, visible.rect.width)))
     };
   }
 
   function seekAudioToVisibleText() {
-    if (!audioAlignment || !readerAudio.getAttribute("src") || !currentAudioTrack) return;
+    if (!audioAlignment || !readerAudio.getAttribute("src") || !currentAudioTrack) return false;
     const position = visiblePagePosition();
     const page = position ? audioAlignment.pagesByKey.get(position.pageKey) : null;
-    if (!page || !page.spoken || page.end <= page.start) return;
+    if (!page || !page.spoken || page.end <= page.start) return false;
     const nextTime = page.start + (page.end - page.start) * position.progress;
     audioSeekingFromText = true;
     readerAudio.currentTime = Math.max(0, Math.min(readerAudio.duration || nextTime, nextTime));
+    return true;
   }
 
   function markManualScrollIntent() {
-    if (audioProgrammaticScroll) return;
+    cancelAudioFollowScroll();
     manualScrollIntent = true;
     window.clearTimeout(manualScrollIntentTimer);
     manualScrollIntentTimer = window.setTimeout(() => { manualScrollIntent = false; }, 1200);
@@ -316,32 +403,58 @@
   function handleViewportScroll() {
     updateProgress();
     if (audioProgrammaticScroll || (!manualScrollIntent && !manualScrollActive)) return;
+    if (!manualScrollActive) {
+      manualScrollStartedWhileFollowing = audioFollowEnabled && Boolean(readerAudio.getAttribute("src"));
+    }
     manualScrollActive = true;
-    audioFollowEnabled = false;
-    updateAudioFollowControls();
+    if (manualScrollStartedWhileFollowing) setAudioFollowDetached(true);
     window.clearTimeout(manualScrollTimer);
     manualScrollTimer = window.setTimeout(finishManualScroll, 320);
   }
 
-  async function finishManualScroll() {
+  function finishManualScroll() {
     if (!manualScrollActive) return;
     manualScrollActive = false;
     manualScrollIntent = false;
-    if (readBooleanPreference(AUDIO_SEEK_ON_SCROLL_KEY, false)) {
-      await ensureAudioAlignment();
-      seekAudioToVisibleText();
-    }
-    if (readBooleanPreference(AUDIO_RESUME_FOLLOW_KEY, true)) {
-      audioFollowEnabled = true;
-      syncTextToAudio();
-    }
-    updateAudioFollowControls();
+    if (manualScrollStartedWhileFollowing) setAudioFollowDetached(true, { showPrompt: true });
+    manualScrollStartedWhileFollowing = false;
   }
 
-  function resumeAudioFollowing() {
-    audioFollowEnabled = true;
-    updateAudioFollowControls();
+  function returnToAudioPosition() {
+    hideAudioFollowPrompt();
+    setAudioFollowDetached(false);
     syncTextToAudio();
+    if (!readerAudio.paused) startAudioPlaybackFollowing();
+  }
+
+  async function playFromVisibleText() {
+    ensureAudioSource();
+    if (!await ensureAudioAlignment() || !seekAudioToVisibleText()) {
+      showToast("這一頁沒有可對應的讀誦位置");
+      return;
+    }
+    hideAudioFollowPrompt();
+    setAudioFollowDetached(false);
+    try {
+      await readerAudio.play();
+    } catch (_error) {
+      audioStatus.textContent = "音頻暫時無法播放，請檢查網路後重試。";
+    }
+  }
+
+  function toggleAudioAutoFollow() {
+    const next = !readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+    writeStorage(AUDIO_AUTO_FOLLOW_KEY, String(next));
+    if (next) {
+      returnToAudioPosition();
+      return;
+    }
+    cancelAudioFollowScroll();
+    stopAudioPlaybackFollowing();
+    audioFollowDetached = false;
+    audioFollowEnabled = false;
+    hideAudioFollowPrompt();
+    updateAudioFollowControls();
   }
 
   function readAudioProgress() {
@@ -382,6 +495,10 @@
     const nextTrack = getAudioTrack(section);
     if (!nextTrack) {
       saveAudioProgress();
+      cancelAudioFollowScroll();
+      audioFollowDetached = false;
+      audioFollowEnabled = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+      hideAudioFollowPrompt();
       currentAudioTrack = null;
       readerAudio.pause();
       readerAudio.removeAttribute("src");
@@ -406,6 +523,10 @@
     audioButton.setAttribute("aria-label", `打開誦經音頻：${nextTrack.title}`);
 
     if (currentAudioTrack?.key === nextTrack.key) return;
+    cancelAudioFollowScroll();
+    audioFollowDetached = false;
+    audioFollowEnabled = readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true);
+    hideAudioFollowPrompt();
     audioPlayButton.textContent = "開始播放";
     audioStatus.textContent = "可從上次位置續播。";
     saveAudioProgress();
@@ -758,6 +879,7 @@
   async function loadSection(index, restorePosition = { ratio: 0 }) {
     if (!volumeIndex || index < 0 || index >= volumeIndex.sections.length) return;
     const requestId = ++sectionRequest;
+    const isAudioTransition = restorePosition?.audioFollow === true;
     sectionLoading = true;
     activeSectionIndex = index;
     const section = volumeIndex.sections[index];
@@ -765,7 +887,14 @@
     currentSourcePageLabel = null;
     resetPullGesture();
     updateSectionUi(section);
-    sutraText.innerHTML = '<div class="reader-loading"><span class="loading-seal" aria-hidden="true">經</span><p>正在展卷…</p></div>';
+    if (isAudioTransition) {
+      sutraText.classList.add("audio-transitioning");
+      sutraText.setAttribute("aria-busy", "true");
+    } else {
+      sutraText.classList.remove("audio-transitioning");
+      sutraText.removeAttribute("aria-busy");
+      sutraText.innerHTML = '<div class="reader-loading"><span class="loading-seal" aria-hidden="true">經</span><p>正在展卷…</p></div>';
+    }
 
     try {
       const response = await fetch(`./${section.content}`);
@@ -827,10 +956,18 @@
         updateProgress();
         observePages();
         viewport.focus({ preventScroll: true });
+        if (isAudioTransition) {
+          window.requestAnimationFrame(() => {
+            sutraText.classList.remove("audio-transitioning");
+            sutraText.removeAttribute("aria-busy");
+          });
+        }
       });
     } catch (_error) {
       if (requestId !== sectionRequest) return;
       sectionLoading = false;
+      sutraText.classList.remove("audio-transitioning");
+      sutraText.removeAttribute("aria-busy");
       sutraText.innerHTML = `
         <div class="reader-error">
           <span class="loading-seal" aria-hidden="true">止</span>
@@ -880,13 +1017,11 @@
   settingsButton.addEventListener("click", () => settingsPanel.dataset.open === "true" ? closeSettings() : openSettings());
   audioButton.addEventListener("click", () => audioPanel.dataset.open === "true" ? closeAudio() : openAudio());
   audioPlayButton.addEventListener("click", toggleAudioPlayback);
-  audioSeekOnScrollToggle.addEventListener("click", () => {
-    toggleAudioPreference(audioSeekOnScrollToggle, AUDIO_SEEK_ON_SCROLL_KEY, false);
-  });
-  audioResumeFollowToggle.addEventListener("click", () => {
-    toggleAudioPreference(audioResumeFollowToggle, AUDIO_RESUME_FOLLOW_KEY, true);
-  });
-  audioResumeFollowButton.addEventListener("click", resumeAudioFollowing);
+  audioAutoFollowToggle.addEventListener("click", toggleAudioAutoFollow);
+  audioReturnFollowButton.addEventListener("click", returnToAudioPosition);
+  audioPlayHereButton.addEventListener("click", playFromVisibleText);
+  audioPromptReturnButton.addEventListener("click", returnToAudioPosition);
+  audioPromptDismissButton.addEventListener("click", hideAudioFollowPrompt);
   document.getElementById("closeAudio").addEventListener("click", closeAudio);
   document.getElementById("closeSettings").addEventListener("click", closeSettings);
   document.getElementById("fontDecrease").addEventListener("click", () => shiftFontScale(-1));
@@ -903,7 +1038,9 @@
     if (!readerAudio.paused) syncTextToAudio();
   });
   readerAudio.addEventListener("seeking", () => {
-    if (!audioSeekingFromText && !audioRestoringProgress && !manualScrollActive) resumeAudioFollowing();
+    if (!audioSeekingFromText && !audioRestoringProgress && !manualScrollActive && readBooleanPreference(AUDIO_AUTO_FOLLOW_KEY, true)) {
+      returnToAudioPosition();
+    }
   });
   readerAudio.addEventListener("seeked", () => {
     audioSeekingFromText = false;
@@ -914,14 +1051,17 @@
     audioButton.dataset.playing = "true";
     audioPlayButton.textContent = "暫停播放";
     audioStatus.textContent = `正在播放 ${currentAudioTrack?.title || "誦經音頻"}`;
+    startAudioPlaybackFollowing();
   });
   readerAudio.addEventListener("pause", () => {
+    stopAudioPlaybackFollowing();
     audioButton.dataset.playing = "false";
     audioPlayButton.textContent = readerAudio.ended ? "重新播放" : "繼續播放";
     saveAudioProgress();
     if (currentAudioTrack && !readerAudio.ended) audioStatus.textContent = "已暫停，進度已保存。";
   });
   readerAudio.addEventListener("ended", () => {
+    stopAudioPlaybackFollowing();
     audioButton.dataset.playing = "false";
     audioPlayButton.textContent = "重新播放";
     saveAudioProgress();
